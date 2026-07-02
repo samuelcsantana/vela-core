@@ -30,6 +30,17 @@ const tenantPublicListItemSchema = z.object({
   slug: z.string(),
 });
 
+const tenantIdParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+const updateTenantBodySchema = z.object({
+  name: z.string().optional(),
+  slug: z.string().optional(),
+  primaryColor: z.string().optional(),
+  logoUrl: z.string().optional(),
+});
+
 export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/tenants',
@@ -104,6 +115,55 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       });
 
       return reply.send(tenants);
+    },
+  );
+
+  app.patch(
+    '/tenants/:id',
+    {
+      preHandler: [app.authenticate, verifyAdmin],
+      schema: {
+        tags: ['Tenants'],
+        summary: 'Update a tenant',
+        description: 'Admin only. Partially updates name, slug, primaryColor and/or logoUrl.',
+        security: [{ cookieAuth: [] }],
+        params: tenantIdParamsSchema,
+        body: updateTenantBodySchema,
+        response: {
+          200: withDescription(tenantResponseSchema, 'Tenant updated successfully'),
+          400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
+          403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
+          404: withDescription(errorResponseSchema, 'No tenant matches the given id'),
+          409: withDescription(errorResponseSchema, 'Another tenant already uses this slug'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { name, slug, primaryColor, logoUrl } = request.body;
+
+      const existingTenant = await prisma.tenant.findUnique({ where: { id } });
+
+      if (!existingTenant) {
+        return reply.status(404).send({ error: 'Tenant not found' });
+      }
+
+      if (slug) {
+        const tenantWithSlug = await prisma.tenant.findUnique({ where: { slug } });
+
+        if (tenantWithSlug && tenantWithSlug.id !== id) {
+          return reply.status(409).send({ error: 'Another tenant already uses this slug' });
+        }
+      }
+
+      const tenant = await prisma.tenant.update({
+        where: { id },
+        data: { name, slug, primaryColor, logoUrl },
+      });
+
+      return reply.send(tenant);
     },
   );
 
