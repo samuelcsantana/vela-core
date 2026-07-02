@@ -115,11 +115,11 @@ npm start
 
 The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) with three accounts for evaluation purposes:
 
-| Email                 | Password       | Role         |
-| --------------------- | -------------- | ------------ |
-| `velaadmin@vela.com`  | `velaadmin123` | `VELA_ADMIN` |
-| `admin@vela.com`      | `admin123`     | `ADMIN`      |
-| `guest@vela.com`      | `guest123`     | `MEMBER`     |
+| Email                   | Password          | Role         |
+| ----------------------- | ----------------- | ------------ |
+| `admin@vela.com`        | `admin123`        | `VELA_ADMIN` |
+| `tenantadmin@vela.com`  | `tenantadmin123`  | `ADMIN`      |
+| `guest@vela.com`        | `guest123`        | `MEMBER`     |
 
 ## API Documentation
 

@@ -37,8 +37,8 @@ export function buildTenantMultipart(
 }
 
 export const GUEST_CREDENTIALS = { email: 'guest@vela.com', password: 'guest123' };
-export const ADMIN_CREDENTIALS = { email: 'admin@vela.com', password: 'admin123' };
-export const VELA_ADMIN_CREDENTIALS = { email: 'velaadmin@vela.com', password: 'velaadmin123' };
+export const ADMIN_CREDENTIALS = { email: 'tenantadmin@vela.com', password: 'tenantadmin123' };
+export const VELA_ADMIN_CREDENTIALS = { email: 'admin@vela.com', password: 'admin123' };
 
 export async function seedBaseData() {
   const tenant = await prisma.tenant.upsert({
@@ -47,9 +47,12 @@ export async function seedBaseData() {
     create: { slug: 'vela', name: 'Vela Admin' },
   });
 
+  // admin@vela.com predates the VELA_ADMIN tier and may already exist with
+  // role ADMIN in a database seeded before this change - `update` promotes
+  // it, not just `create`.
   await prisma.user.upsert({
     where: { email: VELA_ADMIN_CREDENTIALS.email },
-    update: {},
+    update: { role: 'VELA_ADMIN' },
     create: {
       email: VELA_ADMIN_CREDENTIALS.email,
       passwordHash: await bcrypt.hash(VELA_ADMIN_CREDENTIALS.password, 10),
