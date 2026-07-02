@@ -1,0 +1,107 @@
+import { z } from 'zod';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { prisma } from '../lib/prisma.js';
+import { verifyAdmin } from '../lib/auth.js';
+import { errorResponseSchema, validationErrorResponseSchema, withDescription } from '../lib/schemas.js';
+
+const createTenantBodySchema = z.object({
+  name: z.string(),
+  slug: z.string(),
+  primaryColor: z.string().optional(),
+  logoUrl: z.string().optional(),
+});
+
+const tenantSlugParamsSchema = z.object({
+  slug: z.string(),
+});
+
+const tenantResponseSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  name: z.string(),
+  primaryColor: z.string().nullable(),
+  logoUrl: z.string().nullable(),
+  createdAt: z.date(),
+});
+
+export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
+  app.post(
+    '/tenants',
+    {
+      preHandler: [app.authenticate, verifyAdmin],
+      schema: {
+        tags: ['Tenants'],
+        summary: 'Create a new tenant',
+        description: 'Admin only. Creates a new tenant company.',
+        security: [{ bearerAuth: [] }],
+        body: createTenantBodySchema,
+        response: {
+          201: withDescription(tenantResponseSchema, 'Tenant created successfully'),
+          400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid bearer token'),
+          403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
+          409: withDescription(errorResponseSchema, 'A tenant with this slug already exists'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { name, slug, primaryColor, logoUrl } = request.body;
+
+      const tenant = await prisma.tenant.create({
+        data: { name, slug, primaryColor, logoUrl },
+      });
+
+      return reply.status(201).send(tenant);
+    },
+  );
+
+  app.get(
+    '/tenants',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        tags: ['Tenants'],
+        summary: 'List all tenants',
+        description: 'Any authenticated user can list tenants.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: withDescription(z.array(tenantResponseSchema), 'List of tenants'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid bearer token'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const tenants = await prisma.tenant.findMany();
+
+      return reply.send(tenants);
+    },
+  );
+
+  app.get(
+    '/tenants/:slug',
+    {
+      schema: {
+        tags: ['Tenants'],
+        summary: 'Get a tenant by slug',
+        description: 'Public white-label lookup, used to fetch branding before login.',
+        params: tenantSlugParamsSchema,
+        response: {
+          200: withDescription(tenantResponseSchema, 'Tenant found'),
+          404: withDescription(errorResponseSchema, 'No tenant matches the given slug'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { slug } = request.params;
+
+      const tenant = await prisma.tenant.findUnique({ where: { slug } });
+
+      if (!tenant) {
+        return reply.status(404).send({ error: 'Tenant not found' });
+      }
+
+      return reply.send(tenant);
+    },
+  );
+};
