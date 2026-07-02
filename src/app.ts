@@ -21,11 +21,9 @@ export function buildApp() {
 
   setupErrorHandler(app);
 
-  // origin: '*' cannot be combined with credentials: true (browsers reject it),
-  // and the JWT now travels as an httpOnly cookie, which requires credentialed
-  // cross-origin requests. Reflecting the request origin keeps the previous
-  // "any origin" openness while making cookie auth actually work.
-  app.register(cors, { origin: true, credentials: true });
+  // Restricted to the known frontend origin, with credentials enabled so the
+  // browser will send/receive the httpOnly JWT cookie on cross-origin requests.
+  app.register(cors, { origin: 'http://localhost:3000', credentials: true });
   app.register(cookie);
   app.register(sensible);
   app.register(authPlugin);
