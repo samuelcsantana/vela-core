@@ -67,6 +67,10 @@ const tenantIdParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+const deleteTenantResponseSchema = z.object({
+  message: z.string(),
+});
+
 // Portfolio demo safeguard against exhausting the free-tier database plan.
 // Set well above the tenant count our own test suite creates in a single
 // run (see tenant.routes.spec.ts + auth.e2e.spec.ts), so CI never trips it.
@@ -263,6 +267,49 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       });
 
       return reply.send(tenant);
+    },
+  );
+
+  app.delete(
+    '/tenants/:id',
+    {
+      preHandler: [app.authenticate, verifyAdmin],
+      schema: {
+        tags: ['Tenants'],
+        summary: 'Delete a tenant',
+        description: 'Admin only. Fails if the tenant still has users; remove or reassign them first.',
+        security: [{ cookieAuth: [] }],
+        params: tenantIdParamsSchema,
+        response: {
+          200: withDescription(deleteTenantResponseSchema, 'Tenant deleted successfully'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
+          403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
+          404: withDescription(errorResponseSchema, 'No tenant matches the given id'),
+          409: withDescription(errorResponseSchema, 'Tenant still has users and cannot be deleted'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const existingTenant = await prisma.tenant.findUnique({ where: { id } });
+
+      if (!existingTenant) {
+        return reply.status(404).send({ error: 'Tenant not found' });
+      }
+
+      // User.tenantId has an ON DELETE RESTRICT foreign key, so deleting a
+      // tenant that still has users would otherwise fail as an opaque 500.
+      const userCount = await prisma.user.count({ where: { tenantId: id } });
+
+      if (userCount > 0) {
+        return reply.status(409).send({ error: 'Tenant still has users and cannot be deleted' });
+      }
+
+      await prisma.tenant.delete({ where: { id } });
+
+      return reply.status(200).send({ message: 'Tenant deleted successfully' });
     },
   );
 

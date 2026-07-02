@@ -15,6 +15,7 @@ vi.mock('../lib/s3.js', () => ({
 describe('Tenant routes - exception flows', () => {
   const app = buildApp();
   const createdTenantSlugs: string[] = [];
+  const createdUserEmails: string[] = [];
   let adminToken: string;
   let guestToken: string;
 
@@ -38,6 +39,12 @@ describe('Tenant routes - exception flows', () => {
   });
 
   afterAll(async () => {
+    // Users must go first - Tenant is ON DELETE RESTRICT, so a tenant still
+    // holding a user (e.g. the "still has users" test below) would otherwise
+    // block its own cleanup here.
+    if (createdUserEmails.length > 0) {
+      await prisma.user.deleteMany({ where: { email: { in: createdUserEmails } } });
+    }
     if (createdTenantSlugs.length > 0) {
       await prisma.tenant.deleteMany({ where: { slug: { in: createdTenantSlugs } } });
     }
@@ -349,6 +356,101 @@ describe('Tenant routes - exception flows', () => {
       url: '/api/tenants/00000000-0000-0000-0000-000000000000',
       headers,
       payload,
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('deletes a tenant with no users as admin', async () => {
+    const slug = `delete-me-${Date.now()}`;
+    createdTenantSlugs.push(slug);
+
+    const create = buildTenantMultipart({ name: 'Delete Me Co', slug });
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      headers: create.headers,
+      payload: create.payload,
+    });
+    const tenantId = createResponse.json().id;
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/tenants/${tenantId}`,
+      cookies: { token: adminToken },
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toEqual({ message: 'Tenant deleted successfully' });
+
+    const deletedTenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    expect(deletedTenant).toBeNull();
+  });
+
+  it('returns 404 when deleting a tenant id that does not exist', async () => {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/tenants/00000000-0000-0000-0000-000000000000',
+      cookies: { token: adminToken },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: 'Tenant not found' });
+  });
+
+  it('returns 409 when deleting a tenant that still has users', async () => {
+    const slug = `delete-with-users-${Date.now()}`;
+    createdTenantSlugs.push(slug);
+
+    const create = buildTenantMultipart({ name: 'Has Users Co', slug });
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      headers: create.headers,
+      payload: create.payload,
+    });
+    const tenantId = createResponse.json().id;
+
+    const memberEmail = `member-of-${slug}@example.com`;
+    createdUserEmails.push(memberEmail);
+
+    await prisma.user.create({
+      data: {
+        email: memberEmail,
+        passwordHash: 'irrelevant-for-this-test',
+        tenantId,
+      },
+    });
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/tenants/${tenantId}`,
+      cookies: { token: adminToken },
+    });
+
+    expect(deleteResponse.statusCode).toBe(409);
+    expect(deleteResponse.json()).toEqual({ error: 'Tenant still has users and cannot be deleted' });
+
+    const stillExists = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    expect(stillExists).not.toBeNull();
+  });
+
+  it('returns 403 when a non-admin tries to delete a tenant', async () => {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/tenants/00000000-0000-0000-0000-000000000000',
+      cookies: { token: guestToken },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('returns 401 when deleting a tenant without a token', async () => {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/tenants/00000000-0000-0000-0000-000000000000',
     });
 
     expect(response.statusCode).toBe(401);

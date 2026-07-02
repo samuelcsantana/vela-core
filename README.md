@@ -40,7 +40,7 @@ There are two roles:
 
 | Role     | Can do                                                                 |
 | -------- | ------------------------------------------------------------------------ |
-| `ADMIN`  | Create and update tenants (`POST`/`PATCH /api/tenants`), create users (`POST /api/users`), plus everything a `MEMBER` can do |
+| `ADMIN`  | Create, update and delete tenants (`POST`/`PATCH`/`DELETE /api/tenants`), create users (`POST /api/users`), plus everything a `MEMBER` can do |
 | `MEMBER` | List tenants, list users of their own tenant, read tenant white-label data |
 
 | Endpoint                   | Auth required                  | Notes                                                              |
@@ -53,6 +53,7 @@ There are two roles:
 | `GET /api/tenants`         | `authenticate`                  | Any authenticated user.                                             |
 | `POST /api/tenants`        | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; optional `logo` file uploads to S3. |
 | `PATCH /api/tenants/:id`   | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; partial update, including `logo`. |
+| `DELETE /api/tenants/:id`  | `authenticate` + `verifyAdmin`  | Admins only. Fails with `409` if the tenant still has users. |
 | `GET /api/users`           | `authenticate`                  | Scoped to the caller's own tenant.                                  |
 | `POST /api/users`          | `authenticate` + `verifyAdmin`  | Admins only.                                                        |
 
