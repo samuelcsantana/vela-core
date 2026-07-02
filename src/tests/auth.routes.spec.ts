@@ -64,4 +64,18 @@ describe('Auth routes - failure flows', () => {
 
     expect(response.statusCode).toBe(401);
   });
+
+  it('logs out by clearing the token cookie', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ message: 'Logged out successfully' });
+
+    const clearedCookie = response.cookies.find((cookie) => cookie.name === 'token');
+    expect(clearedCookie).toBeDefined();
+    expect(clearedCookie?.value).toBe('');
+  });
 });

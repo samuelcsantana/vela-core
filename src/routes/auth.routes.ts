@@ -9,6 +9,10 @@ const loginBodySchema = z.object({
   password: z.string(),
 });
 
+const logoutResponseSchema = z.object({
+  message: z.string(),
+});
+
 export const authRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/auth/login',
@@ -61,6 +65,25 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         tenantId: user.tenantId,
         createdAt: user.createdAt,
       });
+    },
+  );
+
+  app.post(
+    '/auth/logout',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Log out',
+        description: 'Clears the httpOnly token cookie.',
+        response: {
+          200: withDescription(logoutResponseSchema, 'Logged out successfully'),
+        },
+      },
+    },
+    async (request, reply) => {
+      reply.clearCookie('token', { path: '/' });
+
+      return reply.status(200).send({ message: 'Logged out successfully' });
     },
   );
 };
