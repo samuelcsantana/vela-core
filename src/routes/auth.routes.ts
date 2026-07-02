@@ -13,6 +13,18 @@ const logoutResponseSchema = z.object({
   message: z.string(),
 });
 
+const registerBodySchema = z.object({
+  companyName: z.string(),
+  slug: z.string(),
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+
+const registerResponseSchema = z.object({
+  tenantId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+
 export const authRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/auth/login',
@@ -84,6 +96,65 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       reply.clearCookie('token', { path: '/' });
 
       return reply.status(200).send({ message: 'Logged out successfully' });
+    },
+  );
+
+  app.post(
+    '/auth/register',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Register a new tenant',
+        description:
+          'Public. Creates a Tenant and its first ADMIN user in a single transaction. ' +
+          'Does not log in automatically — use POST /auth/login afterwards.',
+        body: registerBodySchema,
+        response: {
+          201: withDescription(registerResponseSchema, 'Tenant and admin user created successfully'),
+          400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
+          409: withDescription(
+            errorResponseSchema,
+            'A tenant with this slug or a user with this email already exists',
+          ),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { companyName, slug, email, password } = request.body;
+
+      const [existingTenant, existingUser] = await Promise.all([
+        prisma.tenant.findUnique({ where: { slug } }),
+        prisma.user.findUnique({ where: { email } }),
+      ]);
+
+      if (existingTenant) {
+        return reply.status(409).send({ error: 'A tenant with this slug already exists' });
+      }
+
+      if (existingUser) {
+        return reply.status(409).send({ error: 'A user with this email already exists' });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      const { tenant, user } = await prisma.$transaction(async (tx) => {
+        const tenant = await tx.tenant.create({
+          data: { name: companyName, slug },
+        });
+
+        const user = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            role: 'ADMIN',
+            tenantId: tenant.id,
+          },
+        });
+
+        return { tenant, user };
+      });
+
+      return reply.status(201).send({ tenantId: tenant.id, userId: user.id });
     },
   );
 };
