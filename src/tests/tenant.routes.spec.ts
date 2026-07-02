@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
+import { MAX_TENANTS_LIMIT } from '../routes/tenant.routes.js';
 import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData, extractTokenCookie } from './helpers.js';
 
 describe('Tenant routes - exception flows', () => {
@@ -218,5 +219,31 @@ describe('Tenant routes - exception flows', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it('returns 403 when the free tier tenant limit is reached', async () => {
+    const currentCount = await prisma.tenant.count();
+    const missing = Math.max(MAX_TENANTS_LIMIT - currentCount, 0);
+
+    if (missing > 0) {
+      const fillerSlugs = Array.from({ length: missing }, (_, i) => `limit-filler-${Date.now()}-${i}`);
+      createdTenantSlugs.push(...fillerSlugs);
+
+      await prisma.tenant.createMany({
+        data: fillerSlugs.map((slug) => ({ name: 'Filler Co', slug })),
+      });
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      payload: { name: 'One Too Many', slug: `over-limit-${Date.now()}` },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      error: `Free tier limit reached. Maximum number of tenants allowed in this demo is ${MAX_TENANTS_LIMIT}.`,
+    });
   });
 });

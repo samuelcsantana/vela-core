@@ -41,6 +41,11 @@ const updateTenantBodySchema = z.object({
   logoUrl: z.string().optional(),
 });
 
+// Portfolio demo safeguard against exhausting the free-tier database plan.
+// Set well above the tenant count our own test suite creates in a single
+// run (see tenant.routes.spec.ts + auth.e2e.spec.ts), so CI never trips it.
+export const MAX_TENANTS_LIMIT = 20;
+
 export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/tenants',
@@ -56,7 +61,10 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           201: withDescription(tenantResponseSchema, 'Tenant created successfully'),
           400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
           401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
-          403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
+          403: withDescription(
+            errorResponseSchema,
+            'Authenticated user is not an admin, or the free tier tenant limit has been reached',
+          ),
           409: withDescription(errorResponseSchema, 'A tenant with this slug already exists'),
           500: withDescription(errorResponseSchema, 'Unexpected server error'),
         },
@@ -64,6 +72,14 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const { name, slug, primaryColor, logoUrl } = request.body;
+
+      const tenantCount = await prisma.tenant.count();
+
+      if (tenantCount >= MAX_TENANTS_LIMIT) {
+        return reply.status(403).send({
+          error: `Free tier limit reached. Maximum number of tenants allowed in this demo is ${MAX_TENANTS_LIMIT}.`,
+        });
+      }
 
       const tenant = await prisma.tenant.create({
         data: { name, slug, primaryColor, logoUrl },
