@@ -1,8 +1,9 @@
-import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
 import { verifyAdmin } from '../lib/auth.js';
+import { errorResponseSchema, validationErrorResponseSchema, withDescription } from '../lib/schemas.js';
 
 const createUserBodySchema = z.object({
   email: z.string().email(),
@@ -10,40 +11,85 @@ const createUserBodySchema = z.object({
   tenantId: z.string().uuid(),
 });
 
-export async function userRoutes(app: FastifyInstance) {
-  app.post('/users', { preHandler: [app.authenticate, verifyAdmin] }, async (request, reply) => {
-    const { email, password, tenantId } = createUserBodySchema.parse(request.body);
+const userResponseSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  role: z.string(),
+  tenantId: z.string().uuid(),
+  createdAt: z.date(),
+});
 
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const user = await prisma.user.create({
-      data: { email, passwordHash, tenantId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        tenantId: true,
-        createdAt: true,
+export const userRoutes: FastifyPluginAsyncZod = async (app) => {
+  app.post(
+    '/users',
+    {
+      preHandler: [app.authenticate, verifyAdmin],
+      schema: {
+        tags: ['Users'],
+        summary: 'Create a new user',
+        description: 'Admin only. Creates a user under the given tenant. Never returns the password hash.',
+        security: [{ bearerAuth: [] }],
+        body: createUserBodySchema,
+        response: {
+          201: withDescription(userResponseSchema, 'User created successfully'),
+          400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid bearer token'),
+          403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
+          409: withDescription(errorResponseSchema, 'A user with this email already exists'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error, e.g. tenantId does not reference an existing tenant'),
+        },
       },
-    });
+    },
+    async (request, reply) => {
+      const { email, password, tenantId } = request.body;
 
-    return reply.status(201).send(user);
-  });
+      const passwordHash = await bcrypt.hash(password, 10);
 
-  app.get('/users', { preHandler: [app.authenticate] }, async (request, reply) => {
-    const { tenantId } = request.user;
+      const user = await prisma.user.create({
+        data: { email, passwordHash, tenantId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          tenantId: true,
+          createdAt: true,
+        },
+      });
 
-    const users = await prisma.user.findMany({
-      where: { tenantId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        tenantId: true,
-        createdAt: true,
+      return reply.status(201).send(user);
+    },
+  );
+
+  app.get(
+    '/users',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        tags: ['Users'],
+        summary: "List the caller's tenant users",
+        description: 'Any authenticated user can list users scoped to their own tenant.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: withDescription(z.array(userResponseSchema), "List of the caller's tenant users"),
+          401: withDescription(errorResponseSchema, 'Missing or invalid bearer token'),
+        },
       },
-    });
+    },
+    async (request, reply) => {
+      const { tenantId } = request.user;
 
-    return reply.send(users);
-  });
-}
+      const users = await prisma.user.findMany({
+        where: { tenantId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          tenantId: true,
+          createdAt: true,
+        },
+      });
+
+      return reply.send(users);
+    },
+  );
+};

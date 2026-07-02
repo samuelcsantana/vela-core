@@ -1,7 +1,8 @@
-import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { prisma } from '../lib/prisma.js';
 import { verifyAdmin } from '../lib/auth.js';
+import { errorResponseSchema, validationErrorResponseSchema, withDescription } from '../lib/schemas.js';
 
 const createTenantBodySchema = z.object({
   name: z.string(),
@@ -14,32 +15,93 @@ const tenantSlugParamsSchema = z.object({
   slug: z.string(),
 });
 
-export async function tenantRoutes(app: FastifyInstance) {
-  app.post('/tenants', { preHandler: [app.authenticate, verifyAdmin] }, async (request, reply) => {
-    const { name, slug, primaryColor, logoUrl } = createTenantBodySchema.parse(request.body);
+const tenantResponseSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  name: z.string(),
+  primaryColor: z.string().nullable(),
+  logoUrl: z.string().nullable(),
+  createdAt: z.date(),
+});
 
-    const tenant = await prisma.tenant.create({
-      data: { name, slug, primaryColor, logoUrl },
-    });
+export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
+  app.post(
+    '/tenants',
+    {
+      preHandler: [app.authenticate, verifyAdmin],
+      schema: {
+        tags: ['Tenants'],
+        summary: 'Create a new tenant',
+        description: 'Admin only. Creates a new tenant company.',
+        security: [{ bearerAuth: [] }],
+        body: createTenantBodySchema,
+        response: {
+          201: withDescription(tenantResponseSchema, 'Tenant created successfully'),
+          400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid bearer token'),
+          403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
+          409: withDescription(errorResponseSchema, 'A tenant with this slug already exists'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { name, slug, primaryColor, logoUrl } = request.body;
 
-    return reply.status(201).send(tenant);
-  });
+      const tenant = await prisma.tenant.create({
+        data: { name, slug, primaryColor, logoUrl },
+      });
 
-  app.get('/tenants', { preHandler: [app.authenticate] }, async (request, reply) => {
-    const tenants = await prisma.tenant.findMany();
+      return reply.status(201).send(tenant);
+    },
+  );
 
-    return reply.send(tenants);
-  });
+  app.get(
+    '/tenants',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        tags: ['Tenants'],
+        summary: 'List all tenants',
+        description: 'Any authenticated user can list tenants.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: withDescription(z.array(tenantResponseSchema), 'List of tenants'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid bearer token'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const tenants = await prisma.tenant.findMany();
 
-  app.get('/tenants/:slug', async (request, reply) => {
-    const { slug } = tenantSlugParamsSchema.parse(request.params);
+      return reply.send(tenants);
+    },
+  );
 
-    const tenant = await prisma.tenant.findUnique({ where: { slug } });
+  app.get(
+    '/tenants/:slug',
+    {
+      schema: {
+        tags: ['Tenants'],
+        summary: 'Get a tenant by slug',
+        description: 'Public white-label lookup, used to fetch branding before login.',
+        params: tenantSlugParamsSchema,
+        response: {
+          200: withDescription(tenantResponseSchema, 'Tenant found'),
+          404: withDescription(errorResponseSchema, 'No tenant matches the given slug'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { slug } = request.params;
 
-    if (!tenant) {
-      return reply.status(404).send({ error: 'Tenant not found' });
-    }
+      const tenant = await prisma.tenant.findUnique({ where: { slug } });
 
-    return reply.send(tenant);
-  });
-}
+      if (!tenant) {
+        return reply.status(404).send({ error: 'Tenant not found' });
+      }
+
+      return reply.send(tenant);
+    },
+  );
+};
