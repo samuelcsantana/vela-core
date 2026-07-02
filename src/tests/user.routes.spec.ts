@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
-import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData } from './helpers.js';
+import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData, extractTokenCookie } from './helpers.js';
 
 describe('User routes - exception flows', () => {
   const app = buildApp();
@@ -20,14 +20,14 @@ describe('User routes - exception flows', () => {
       url: '/api/auth/login',
       payload: ADMIN_CREDENTIALS,
     });
-    adminToken = adminLogin.json().token;
+    adminToken = extractTokenCookie(adminLogin);
 
     const guestLogin = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
       payload: GUEST_CREDENTIALS,
     });
-    guestToken = guestLogin.json().token;
+    guestToken = extractTokenCookie(guestLogin);
   });
 
   afterAll(async () => {
@@ -42,7 +42,7 @@ describe('User routes - exception flows', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/users',
-      headers: { authorization: `Bearer ${guestToken}` },
+      cookies: { token: guestToken },
       payload: { email: `blocked-${Date.now()}@vela.com`, password: 'secret123', tenantId },
     });
 
@@ -56,7 +56,7 @@ describe('User routes - exception flows', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/users',
-      headers: { authorization: `Bearer ${adminToken}` },
+      cookies: { token: adminToken },
       payload: { email, password: 'secret123', tenantId },
     });
 
@@ -69,7 +69,7 @@ describe('User routes - exception flows', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/users',
-      headers: { authorization: `Bearer ${adminToken}` },
+      cookies: { token: adminToken },
       payload: { email: ADMIN_CREDENTIALS.email, password: 'secret123', tenantId },
     });
 
@@ -81,7 +81,7 @@ describe('User routes - exception flows', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/users',
-      headers: { authorization: `Bearer ${adminToken}` },
+      cookies: { token: adminToken },
       payload: {
         email: `orphan-${Date.now()}@vela.com`,
         password: 'secret123',
@@ -96,7 +96,7 @@ describe('User routes - exception flows', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/users',
-      headers: { authorization: `Bearer ${guestToken}` },
+      cookies: { token: guestToken },
     });
 
     expect(response.statusCode).toBe(200);

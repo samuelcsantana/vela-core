@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
-import { ADMIN_CREDENTIALS, seedBaseData } from './helpers.js';
+import { ADMIN_CREDENTIALS, seedBaseData, extractTokenCookie } from './helpers.js';
 
 describe('Tenant routes - exception flows', () => {
   const app = buildApp();
@@ -17,7 +17,7 @@ describe('Tenant routes - exception flows', () => {
       url: '/api/auth/login',
       payload: ADMIN_CREDENTIALS,
     });
-    adminToken = loginResponse.json().token;
+    adminToken = extractTokenCookie(loginResponse);
   });
 
   afterAll(async () => {
@@ -32,7 +32,7 @@ describe('Tenant routes - exception flows', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/tenants',
-      headers: { authorization: `Bearer ${adminToken}` },
+      cookies: { token: adminToken },
     });
 
     expect(response.statusCode).toBe(200);
@@ -53,7 +53,7 @@ describe('Tenant routes - exception flows', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/tenants',
-      headers: { authorization: `Bearer ${adminToken}` },
+      cookies: { token: adminToken },
       payload: { slug: `missing-name-${Date.now()}` },
     });
 
@@ -68,7 +68,7 @@ describe('Tenant routes - exception flows', () => {
     const firstResponse = await app.inject({
       method: 'POST',
       url: '/api/tenants',
-      headers: { authorization: `Bearer ${adminToken}` },
+      cookies: { token: adminToken },
       payload: { name: 'Conflict Co', slug },
     });
     expect(firstResponse.statusCode).toBe(201);
@@ -76,7 +76,7 @@ describe('Tenant routes - exception flows', () => {
     const secondResponse = await app.inject({
       method: 'POST',
       url: '/api/tenants',
-      headers: { authorization: `Bearer ${adminToken}` },
+      cookies: { token: adminToken },
       payload: { name: 'Conflict Co Again', slug },
     });
 

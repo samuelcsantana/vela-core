@@ -1,5 +1,16 @@
+import type { Response } from 'light-my-request';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
+
+export function extractTokenCookie(response: Response): string {
+  const token = response.cookies.find((cookie) => cookie.name === 'token')?.value;
+
+  if (!token) {
+    throw new Error('Login response did not set a token cookie');
+  }
+
+  return token;
+}
 
 export const GUEST_CREDENTIALS = { email: 'guest@vela.com', password: 'guest123' };
 export const ADMIN_CREDENTIALS = { email: 'admin@vela.com', password: 'admin123' };

@@ -24,6 +24,16 @@ declare module '@fastify/jwt' {
 export const authPlugin = fp(async (app: FastifyInstance) => {
   app.register(jwt, {
     secret: process.env.JWT_SECRET!,
+    cookie: {
+      cookieName: 'token',
+      signed: false,
+    },
+    // Only read the token from the cookie set at login — the Authorization
+    // header is no longer accepted, since the JWT now lives in an httpOnly
+    // cookie for XSS protection.
+    verify: {
+      onlyCookie: true,
+    },
   });
 
   app.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {

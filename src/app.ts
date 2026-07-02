@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import sensible from '@fastify/sensible';
 import { validatorCompiler, serializerCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authPlugin } from './lib/auth.js';
@@ -20,7 +21,12 @@ export function buildApp() {
 
   setupErrorHandler(app);
 
-  app.register(cors, { origin: '*' });
+  // origin: '*' cannot be combined with credentials: true (browsers reject it),
+  // and the JWT now travels as an httpOnly cookie, which requires credentialed
+  // cross-origin requests. Reflecting the request origin keeps the previous
+  // "any origin" openness while making cookie auth actually work.
+  app.register(cors, { origin: true, credentials: true });
+  app.register(cookie);
   app.register(sensible);
   app.register(authPlugin);
 

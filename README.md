@@ -32,7 +32,7 @@ Vela Core follows a **shared database, shared schema** multi-tenancy model:
 
 Authorization is layered on top of authentication using two composable Fastify hooks (`src/lib/auth.ts`):
 
-- **`authenticate`** — verifies the `Authorization: Bearer <token>` header via `@fastify/jwt`. Populates `request.user` with `{ id, role, tenantId }`.
+- **`authenticate`** — verifies the JWT stored in the `token` httpOnly cookie via `@fastify/jwt`. Populates `request.user` with `{ id, role, tenantId }`. The `Authorization` header is not accepted; the token never touches client-side JavaScript, which protects it from XSS.
 - **`verifyAdmin`** — runs after `authenticate` and checks `request.user.role === 'ADMIN'`. Non-admins get a `403` with a standardized message.
 
 There are two roles:
@@ -66,6 +66,8 @@ Create a `.env` file in the project root:
 DATABASE_URL="postgresql://user:password@host:5432/dbname"
 JWT_SECRET="your-secret-key"
 ```
+
+Set `NODE_ENV=production` when deploying behind HTTPS — it makes the `token` cookie `secure` (browsers will then only send it over HTTPS).
 
 ### Commands
 
@@ -108,7 +110,7 @@ Interactive OpenAPI 3.0.0 documentation (Swagger UI) is served at:
 GET /docs
 ```
 
-The raw OpenAPI spec is available at `GET /docs/json`. The spec declares a `bearerAuth` (JWT) security scheme, matching the `Authorization: Bearer <token>` header expected by protected routes.
+The raw OpenAPI spec is available at `GET /docs/json`. The spec declares a `cookieAuth` (apiKey, in `cookie`) security scheme, matching the httpOnly `token` cookie expected by protected routes. Since Swagger UI's "Try it out" can't set httpOnly cookies for you, log in via `POST /api/auth/login` from a real HTTP client (e.g. `curl -c`) to exercise protected routes interactively.
 
 ## Continuous Integration
 

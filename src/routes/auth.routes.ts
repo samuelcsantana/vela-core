@@ -2,15 +2,11 @@ import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
-import { errorResponseSchema, validationErrorResponseSchema, withDescription } from '../lib/schemas.js';
+import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, withDescription } from '../lib/schemas.js';
 
 const loginBodySchema = z.object({
   email: z.string().email(),
   password: z.string(),
-});
-
-const loginResponseSchema = z.object({
-  token: z.string(),
 });
 
 export const authRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -20,10 +16,11 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['Auth'],
         summary: 'Log in',
-        description: 'Public. Returns a JWT containing id, role and tenantId.',
+        description:
+          'Public. Sets a signed JWT (id, role, tenantId) as an httpOnly cookie and returns the user.',
         body: loginBodySchema,
         response: {
-          200: withDescription(loginResponseSchema, 'Login successful, returns a signed JWT'),
+          200: withDescription(userPublicSchema, 'Login successful. Sets the token cookie and returns the user'),
           400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
           401: withDescription(errorResponseSchema, 'Email not found or password does not match'),
         },
@@ -50,7 +47,20 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         tenantId: user.tenantId,
       });
 
-      return reply.send({ token });
+      reply.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+      });
+
+      return reply.send({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId,
+        createdAt: user.createdAt,
+      });
     },
   );
 };
