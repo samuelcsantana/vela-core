@@ -18,6 +18,8 @@ const registerBodySchema = z.object({
   slug: z.string(),
   email: z.string().email(),
   password: z.string().min(6),
+  primaryColor: z.string().optional(),
+  logoUrl: z.string().optional(),
 });
 
 const registerResponseSchema = z.object({
@@ -120,7 +122,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { companyName, slug, email, password } = request.body;
+      const { companyName, slug, email, password, primaryColor, logoUrl } = request.body;
 
       const [existingTenant, existingUser] = await Promise.all([
         prisma.tenant.findUnique({ where: { slug } }),
@@ -139,7 +141,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
 
       const { tenant, user } = await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.create({
-          data: { name: companyName, slug },
+          data: { name: companyName, slug, primaryColor, logoUrl },
         });
 
         const user = await tx.user.create({

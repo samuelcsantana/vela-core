@@ -33,7 +33,14 @@ describe('POST /api/auth/register', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: { companyName: 'Onboard Co', slug, email, password: 'secret123' },
+      payload: {
+        companyName: 'Onboard Co',
+        slug,
+        email,
+        password: 'secret123',
+        primaryColor: '#FF6600',
+        logoUrl: 'https://example.com/logo.png',
+      },
     });
 
     expect(response.statusCode).toBe(201);
@@ -47,6 +54,8 @@ describe('POST /api/auth/register', () => {
     expect(tenant).not.toBeNull();
     expect(tenant?.id).toBe(body.tenantId);
     expect(tenant?.name).toBe('Onboard Co');
+    expect(tenant?.primaryColor).toBe('#FF6600');
+    expect(tenant?.logoUrl).toBe('https://example.com/logo.png');
 
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user).not.toBeNull();
