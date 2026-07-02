@@ -1,21 +1,6 @@
-import 'dotenv/config';
-import Fastify from 'fastify';
-import cors from '@fastify/cors';
-import { tenantRoutes } from './routes/tenant.routes.js';
+import { buildApp } from './app.js';
 
-const app = Fastify({
-  logger: true,
-});
-
-app.register(cors, {
-  origin: '*',
-});
-
-app.register(tenantRoutes, { prefix: '/api' });
-
-app.get('/ping', async () => {
-  return { status: 'ok' };
-});
+const app = buildApp();
 
 app.listen({ port: 3333 }, (err, address) => {
   if (err) {
