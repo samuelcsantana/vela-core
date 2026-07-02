@@ -24,7 +24,13 @@ export function buildApp() {
 
   // Restricted to the known frontend origin, with credentials enabled so the
   // browser will send/receive the httpOnly JWT cookie on cross-origin requests.
-  app.register(cors, { origin: 'http://localhost:3000', credentials: true });
+  // @fastify/cors defaults `methods` to 'GET,HEAD,POST' only, which silently
+  // blocked preflight requests for PATCH/DELETE (used by tenant update/delete).
+  app.register(cors, {
+    origin: 'http://localhost:3000',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  });
   app.register(cookie);
   app.register(multipart, {
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB, generous for a logo image
