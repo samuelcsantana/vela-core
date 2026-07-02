@@ -3,7 +3,7 @@ import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
 import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData } from './helpers.js';
 
-const FORBIDDEN_MESSAGE = 'Acesso negado. Apenas administradores podem realizar esta ação.';
+const FORBIDDEN_MESSAGE = 'Access denied. Only administrators can perform this action.';
 
 describe('Auth & RBAC (e2e)', () => {
   const app = buildApp();
