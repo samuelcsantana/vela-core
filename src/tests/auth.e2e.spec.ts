@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import bcrypt from 'bcryptjs';
 import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
-
-const GUEST_CREDENTIALS = { email: 'guest@vela.com', password: 'guest123' };
-const ADMIN_CREDENTIALS = { email: 'admin@vela.com', password: 'admin123' };
+import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData } from './helpers.js';
 
 const FORBIDDEN_MESSAGE = 'Acesso negado. Apenas administradores podem realizar esta ação.';
 
@@ -14,34 +11,7 @@ describe('Auth & RBAC (e2e)', () => {
 
   beforeAll(async () => {
     await app.ready();
-
-    const tenant = await prisma.tenant.upsert({
-      where: { slug: 'vela' },
-      update: {},
-      create: { slug: 'vela', name: 'Vela Admin' },
-    });
-
-    await prisma.user.upsert({
-      where: { email: ADMIN_CREDENTIALS.email },
-      update: {},
-      create: {
-        email: ADMIN_CREDENTIALS.email,
-        passwordHash: await bcrypt.hash(ADMIN_CREDENTIALS.password, 10),
-        role: 'ADMIN',
-        tenantId: tenant.id,
-      },
-    });
-
-    await prisma.user.upsert({
-      where: { email: GUEST_CREDENTIALS.email },
-      update: {},
-      create: {
-        email: GUEST_CREDENTIALS.email,
-        passwordHash: await bcrypt.hash(GUEST_CREDENTIALS.password, 10),
-        role: 'MEMBER',
-        tenantId: tenant.id,
-      },
-    });
+    await seedBaseData();
   });
 
   afterAll(async () => {
