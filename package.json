@@ -21,6 +21,9 @@
     "url": "https://github.com/samuelcsantana/vela-core/issues"
   },
   "homepage": "https://github.com/samuelcsantana/vela-core#readme",
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/jwt": "^10.1.0",

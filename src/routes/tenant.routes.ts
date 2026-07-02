@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { verifyAdmin } from '../lib/auth.js';
 
 const createTenantBodySchema = z.object({
   name: z.string(),
@@ -14,7 +15,7 @@ const tenantSlugParamsSchema = z.object({
 });
 
 export async function tenantRoutes(app: FastifyInstance) {
-  app.post('/tenants', async (request, reply) => {
+  app.post('/tenants', { preHandler: [app.authenticate, verifyAdmin] }, async (request, reply) => {
     const { name, slug, primaryColor, logoUrl } = createTenantBodySchema.parse(request.body);
 
     const tenant = await prisma.tenant.create({
@@ -22,6 +23,12 @@ export async function tenantRoutes(app: FastifyInstance) {
     });
 
     return reply.status(201).send(tenant);
+  });
+
+  app.get('/tenants', { preHandler: [app.authenticate] }, async (request, reply) => {
+    const tenants = await prisma.tenant.findMany();
+
+    return reply.send(tenants);
   });
 
   app.get('/tenants/:slug', async (request, reply) => {
