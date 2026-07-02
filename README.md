@@ -2,7 +2,7 @@
 
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/samuelcsantana/vela-core/ci.yml?branch=main&label=CI%2FCD&logo=githubactions&logoColor=white)](https://github.com/samuelcsantana/vela-core/actions/workflows/ci.yml)
 [![Vulnerabilities](https://img.shields.io/badge/vulnerabilities-0%20high%2Fcritical-brightgreen?logo=npm&logoColor=white)](https://github.com/samuelcsantana/vela-core/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-77%25-yellow?logo=vitest&logoColor=white)](#test-coverage)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen?logo=vitest&logoColor=white)](https://github.com/samuelcsantana/vela-core/actions/workflows/ci.yml)
 
 Backend API for **Vela**, a multi-tenant SaaS platform. Built with Fastify and TypeScript, it provides tenant-scoped data isolation, JWT authentication, and role-based access control (RBAC) out of the box.
 
@@ -119,3 +119,7 @@ Every push and pull request to `main` or `develop` triggers `.github/workflows/c
 3. Runs `npm audit --audit-level=high` as a security gate.
 4. Applies migrations (`prisma migrate deploy`) and seeds the database against the ephemeral Postgres instance.
 5. Runs the full test suite with coverage (`npm run test:coverage`).
+
+`vitest.config.ts` enforces a 100% coverage threshold (lines, functions, branches, statements) — the CI run fails if any metric drops below that.
+
+Coverage and CI badges above are updated manually as of the last commit that touched them; they are not live-generated. For an always-accurate number, check the latest [Actions run](https://github.com/samuelcsantana/vela-core/actions/workflows/ci.yml).
