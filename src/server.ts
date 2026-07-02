@@ -1,5 +1,7 @@
+import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { tenantRoutes } from './routes/tenant.routes.js';
 
 const app = Fastify({
   logger: true,
@@ -8,6 +10,8 @@ const app = Fastify({
 app.register(cors, {
   origin: '*',
 });
+
+app.register(tenantRoutes, { prefix: '/api' });
 
 app.get('/ping', async () => {
   return { status: 'ok' };
