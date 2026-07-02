@@ -1,5 +1,6 @@
 import type { Response } from 'light-my-request';
 import bcrypt from 'bcryptjs';
+import FormData from 'form-data';
 import { prisma } from '../lib/prisma.js';
 
 export function extractTokenCookie(response: Response): string {
@@ -10,6 +11,29 @@ export function extractTokenCookie(response: Response): string {
   }
 
   return token;
+}
+
+export function buildTenantMultipart(
+  fields: Record<string, string>,
+  file?: { buffer: Buffer; filename: string; contentType: string; fieldname?: string },
+): { payload: Buffer; headers: Record<string, string> } {
+  const form = new FormData();
+
+  for (const [key, value] of Object.entries(fields)) {
+    form.append(key, value);
+  }
+
+  if (file) {
+    form.append(file.fieldname ?? 'logo', file.buffer, {
+      filename: file.filename,
+      contentType: file.contentType,
+    });
+  }
+
+  return {
+    payload: form.getBuffer(),
+    headers: form.getHeaders(),
+  };
 }
 
 export const GUEST_CREDENTIALS = { email: 'guest@vela.com', password: 'guest123' };

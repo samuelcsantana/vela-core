@@ -16,6 +16,7 @@ Backend API for **Vela**, a multi-tenant SaaS platform. Built with Fastify and T
 | Database       | PostgreSQL                                                |
 | Validation     | [Zod](https://zod.dev/)                                   |
 | Auth           | `@fastify/jwt` + `bcryptjs`                                |
+| File uploads   | `@fastify/multipart` + AWS S3 (`@aws-sdk/client-s3`), for tenant logos |
 | API Docs       | `@fastify/swagger` + `@fastify/swagger-ui` (OpenAPI 3.0.0) |
 | Testing        | [Vitest](https://vitest.dev/) + `@vitest/coverage-v8`      |
 | CI/CD          | GitHub Actions (with an ephemeral Postgres 15 service)     |
@@ -39,17 +40,21 @@ There are two roles:
 
 | Role     | Can do                                                                 |
 | -------- | ------------------------------------------------------------------------ |
-| `ADMIN`  | Create tenants (`POST /api/tenants`), create users (`POST /api/users`), plus everything a `MEMBER` can do |
+| `ADMIN`  | Create and update tenants (`POST`/`PATCH /api/tenants`), create users (`POST /api/users`), plus everything a `MEMBER` can do |
 | `MEMBER` | List tenants, list users of their own tenant, read tenant white-label data |
 
-| Endpoint                | Auth required   | Notes                                   |
-| ------------------------ | --------------- | ---------------------------------------- |
-| `POST /api/auth/login`   | —               | Public. Returns a JWT.                   |
-| `GET /api/tenants/:slug` | —               | Public. Used for white-label branding.   |
-| `GET /api/tenants`       | `authenticate`  | Any authenticated user.                  |
-| `POST /api/tenants`      | `authenticate` + `verifyAdmin` | Admins only. |
-| `GET /api/users`         | `authenticate`  | Scoped to the caller's own tenant.       |
-| `POST /api/users`        | `authenticate` + `verifyAdmin` | Admins only. |
+| Endpoint                   | Auth required                  | Notes                                                              |
+| ---------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
+| `POST /api/auth/login`     | —                               | Public. Sets the `token` httpOnly cookie.                          |
+| `POST /api/auth/logout`    | —                               | Public. Clears the `token` cookie.                                 |
+| `POST /api/auth/register`  | —                               | Public. Joins an existing tenant as `MEMBER` (a client-supplied `role` is ignored). |
+| `GET /api/tenants/:slug`   | —                               | Public. White-label branding lookup, used before login.            |
+| `GET /api/tenants/public`  | —                               | Public. Minimal fields (`id`, `name`, `slug`) for a tenant picker.  |
+| `GET /api/tenants`         | `authenticate`                  | Any authenticated user.                                             |
+| `POST /api/tenants`        | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; optional `logo` file uploads to S3. |
+| `PATCH /api/tenants/:id`   | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; partial update, including `logo`. |
+| `GET /api/users`           | `authenticate`                  | Scoped to the caller's own tenant.                                  |
+| `POST /api/users`          | `authenticate` + `verifyAdmin`  | Admins only.                                                        |
 
 ## Local Setup
 
@@ -65,6 +70,15 @@ Create a `.env` file in the project root:
 ```env
 DATABASE_URL="postgresql://user:password@host:5432/dbname"
 JWT_SECRET="your-secret-key"
+
+# Required for tenant logo uploads (POST/PATCH /api/tenants). The bucket must
+# grant public read via a bucket policy - do not rely on object ACLs, since
+# buckets created since April 2023 default to "Bucket owner enforced" object
+# ownership, which disables ACLs entirely.
+AWS_REGION="sa-east-1"
+AWS_ACCESS_KEY_ID="your-access-key-id"
+AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+AWS_S3_BUCKET_NAME="your-bucket-name"
 ```
 
 Set `NODE_ENV=production` when deploying behind HTTPS — it makes the `token` cookie `secure` (browsers will then only send it over HTTPS).

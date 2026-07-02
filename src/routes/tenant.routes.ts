@@ -1,15 +1,48 @@
 import { z } from 'zod';
-import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { validatorCompiler as zodValidatorCompiler, type FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import type { FastifyRequest, FastifySchemaCompiler } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { verifyAdmin } from '../lib/auth.js';
+import { uploadLogo } from '../lib/s3.js';
 import { errorResponseSchema, validationErrorResponseSchema, withDescription } from '../lib/schemas.js';
 
-const createTenantBodySchema = z.object({
+// The `logo` field only exists here to drive Swagger's multipart/form-data
+// documentation (see bypassBodyValidation below) - the actual file is parsed
+// separately by parseTenantMultipart and never appears in `fields`.
+const logoDocsField = z
+  .string()
+  .optional()
+  .meta({
+    type: 'string',
+    format: 'binary',
+    description: 'Optional logo image file, uploaded to S3. Sets logoUrl on the tenant.',
+  });
+
+const createTenantFieldsSchema = z.object({
   name: z.string(),
   slug: z.string(),
   primaryColor: z.string().optional(),
-  logoUrl: z.string().optional(),
+  logo: logoDocsField,
 });
+
+const updateTenantFieldsSchema = z.object({
+  name: z.string().optional(),
+  slug: z.string().optional(),
+  primaryColor: z.string().optional(),
+  logo: logoDocsField,
+});
+
+// Fastify would otherwise run the global zod validatorCompiler against
+// request.body, but multipart requests never populate request.body (fields
+// are parsed manually via parseTenantMultipart) - so body validation is a
+// harmless no-op here, while params/querystring/etc. still validate normally.
+const bypassBodyValidation: FastifySchemaCompiler<any> = (routeSchema) => {
+  if (routeSchema.httpPart === 'body') {
+    return () => ({ value: undefined });
+  }
+
+  return zodValidatorCompiler(routeSchema);
+};
 
 const tenantSlugParamsSchema = z.object({
   slug: z.string(),
@@ -34,29 +67,69 @@ const tenantIdParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
-const updateTenantBodySchema = z.object({
-  name: z.string().optional(),
-  slug: z.string().optional(),
-  primaryColor: z.string().optional(),
-  logoUrl: z.string().optional(),
-});
-
 // Portfolio demo safeguard against exhausting the free-tier database plan.
 // Set well above the tenant count our own test suite creates in a single
 // run (see tenant.routes.spec.ts + auth.e2e.spec.ts), so CI never trips it.
 export const MAX_TENANTS_LIMIT = 20;
+
+interface ParsedLogo {
+  buffer: Buffer;
+  filename: string;
+  mimetype: string;
+}
+
+class InvalidLogoError extends Error {
+  statusCode = 400;
+}
+
+// Fastify's schema-based body validation only understands application/json,
+// so multipart routes parse and validate the form manually instead of
+// relying on the zod type provider's automatic request.body handling.
+async function parseTenantMultipart(
+  request: FastifyRequest,
+): Promise<{ fields: Record<string, string>; logo?: ParsedLogo }> {
+  const fields: Record<string, string> = {};
+  let logo: ParsedLogo | undefined;
+
+  for await (const part of request.parts()) {
+    if (part.type === 'file') {
+      if (part.fieldname === 'logo') {
+        if (!part.mimetype.startsWith('image/')) {
+          throw new InvalidLogoError('logo must be an image file');
+        }
+
+        logo = {
+          buffer: await part.toBuffer(),
+          filename: part.filename,
+          mimetype: part.mimetype,
+        };
+      } else {
+        // Drain and discard any file sent under a field we don't care about -
+        // busboy won't advance to the next part until this stream is consumed.
+        await part.toBuffer();
+      }
+    } else {
+      fields[part.fieldname] = String(part.value);
+    }
+  }
+
+  return { fields, logo };
+}
 
 export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/tenants',
     {
       preHandler: [app.authenticate, verifyAdmin],
+      validatorCompiler: bypassBodyValidation,
       schema: {
         tags: ['Tenants'],
         summary: 'Create a new tenant',
-        description: 'Admin only. Creates a new tenant company.',
+        description:
+          'Admin only. Creates a new tenant company. Accepts multipart/form-data so a logo can be uploaded to S3.',
         security: [{ cookieAuth: [] }],
-        body: createTenantBodySchema,
+        consumes: ['multipart/form-data'],
+        body: createTenantFieldsSchema,
         response: {
           201: withDescription(tenantResponseSchema, 'Tenant created successfully'),
           400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
@@ -71,7 +144,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { name, slug, primaryColor, logoUrl } = request.body;
+      const { fields, logo } = await parseTenantMultipart(request);
+      const { name, slug, primaryColor } = createTenantFieldsSchema.parse(fields);
 
       const tenantCount = await prisma.tenant.count();
 
@@ -80,6 +154,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           error: `Free tier limit reached. Maximum number of tenants allowed in this demo is ${MAX_TENANTS_LIMIT}.`,
         });
       }
+
+      const logoUrl = logo ? await uploadLogo(logo.buffer, logo.filename, logo.mimetype) : undefined;
 
       const tenant = await prisma.tenant.create({
         data: { name, slug, primaryColor, logoUrl },
@@ -138,13 +214,17 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     '/tenants/:id',
     {
       preHandler: [app.authenticate, verifyAdmin],
+      validatorCompiler: bypassBodyValidation,
       schema: {
         tags: ['Tenants'],
         summary: 'Update a tenant',
-        description: 'Admin only. Partially updates name, slug, primaryColor and/or logoUrl.',
+        description:
+          'Admin only. Partially updates name, slug, primaryColor and/or logo (uploaded to S3). ' +
+          'Accepts multipart/form-data.',
         security: [{ cookieAuth: [] }],
+        consumes: ['multipart/form-data'],
         params: tenantIdParamsSchema,
-        body: updateTenantBodySchema,
+        body: updateTenantFieldsSchema,
         response: {
           200: withDescription(tenantResponseSchema, 'Tenant updated successfully'),
           400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
@@ -158,7 +238,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { name, slug, primaryColor, logoUrl } = request.body;
+      const { fields, logo } = await parseTenantMultipart(request);
+      const { name, slug, primaryColor } = updateTenantFieldsSchema.parse(fields);
 
       const existingTenant = await prisma.tenant.findUnique({ where: { id } });
 
@@ -173,6 +254,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           return reply.status(409).send({ error: 'Another tenant already uses this slug' });
         }
       }
+
+      const logoUrl = logo ? await uploadLogo(logo.buffer, logo.filename, logo.mimetype) : undefined;
 
       const tenant = await prisma.tenant.update({
         where: { id },

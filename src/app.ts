@@ -2,6 +2,7 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import sensible from '@fastify/sensible';
 import { validatorCompiler, serializerCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authPlugin } from './lib/auth.js';
@@ -25,6 +26,9 @@ export function buildApp() {
   // browser will send/receive the httpOnly JWT cookie on cross-origin requests.
   app.register(cors, { origin: 'http://localhost:3000', credentials: true });
   app.register(cookie);
+  app.register(multipart, {
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB, generous for a logo image
+  });
   app.register(sensible);
   app.register(authPlugin);
 
