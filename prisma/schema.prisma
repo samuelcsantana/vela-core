@@ -11,3 +11,23 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model Tenant {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  name         String
+  primaryColor String?
+  logoUrl      String?
+  createdAt    DateTime @default(now())
+  users        User[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("MEMBER")
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  createdAt    DateTime @default(now())
+}
