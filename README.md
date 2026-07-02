@@ -56,7 +56,7 @@ There is currently no API route to promote a user to `ADMIN` or `VELA_ADMIN` —
 | `GET /api/tenants`         | `authenticate`                  | Any authenticated user.                                             |
 | `POST /api/tenants`        | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; optional `logo` file uploads to S3. |
 | `PATCH /api/tenants/:id`   | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; partial update, including `logo`. |
-| `DELETE /api/tenants/:id`  | `authenticate` + `verifyAdmin`  | Admins only. Fails with `409` if the tenant still has users. |
+| `DELETE /api/tenants/:id`  | `authenticate` + `verifyAdmin`  | Admins only. `409 { error: 'TENANT_HAS_USERS', userCount }` if the tenant still has users, unless `?force=true` (cascade-deletes its users too). |
 | `GET /api/users`           | `authenticate` + `verifyAdmin`  | Admins only (`MEMBER` gets `403`). `VELA_ADMIN` sees every tenant; `ADMIN` sees only their own. Includes `tenant: { name, slug }`. |
 | `POST /api/users`          | `authenticate` + `verifyAdmin`  | Admins only.                                                        |
 

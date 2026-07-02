@@ -399,7 +399,7 @@ describe('Tenant routes - exception flows', () => {
     expect(response.json()).toEqual({ error: 'Tenant not found' });
   });
 
-  it('returns 409 when deleting a tenant that still has users', async () => {
+  it('returns 409 with a userCount when deleting a tenant that still has users', async () => {
     const slug = `delete-with-users-${Date.now()}`;
     createdTenantSlugs.push(slug);
 
@@ -431,10 +431,77 @@ describe('Tenant routes - exception flows', () => {
     });
 
     expect(deleteResponse.statusCode).toBe(409);
-    expect(deleteResponse.json()).toEqual({ error: 'Tenant still has users and cannot be deleted' });
+    expect(deleteResponse.json()).toEqual({ error: 'TENANT_HAS_USERS', userCount: 1 });
 
     const stillExists = await prisma.tenant.findUnique({ where: { id: tenantId } });
     expect(stillExists).not.toBeNull();
+  });
+
+  it('treats ?force=false the same as omitting force (still blocked)', async () => {
+    const slug = `delete-force-false-${Date.now()}`;
+    createdTenantSlugs.push(slug);
+
+    const create = buildTenantMultipart({ name: 'Force False Co', slug });
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      headers: create.headers,
+      payload: create.payload,
+    });
+    const tenantId = createResponse.json().id;
+
+    const memberEmail = `member-of-${slug}@example.com`;
+    createdUserEmails.push(memberEmail);
+
+    await prisma.user.create({
+      data: { email: memberEmail, passwordHash: 'irrelevant-for-this-test', tenantId },
+    });
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/tenants/${tenantId}?force=false`,
+      cookies: { token: adminToken },
+    });
+
+    expect(deleteResponse.statusCode).toBe(409);
+    expect(deleteResponse.json()).toEqual({ error: 'TENANT_HAS_USERS', userCount: 1 });
+  });
+
+  it('deletes a tenant and cascades its users when force=true', async () => {
+    const slug = `delete-force-true-${Date.now()}`;
+    createdTenantSlugs.push(slug);
+
+    const create = buildTenantMultipart({ name: 'Force True Co', slug });
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      headers: create.headers,
+      payload: create.payload,
+    });
+    const tenantId = createResponse.json().id;
+
+    const memberEmail = `member-of-${slug}@example.com`;
+
+    await prisma.user.create({
+      data: { email: memberEmail, passwordHash: 'irrelevant-for-this-test', tenantId },
+    });
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/tenants/${tenantId}?force=true`,
+      cookies: { token: adminToken },
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toEqual({ message: 'Tenant deleted successfully' });
+
+    const tenantGone = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    expect(tenantGone).toBeNull();
+
+    const userGone = await prisma.user.findUnique({ where: { email: memberEmail } });
+    expect(userGone).toBeNull();
   });
 
   it('returns 403 when a non-admin tries to delete a tenant', async () => {

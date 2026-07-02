@@ -71,6 +71,19 @@ const deleteTenantResponseSchema = z.object({
   message: z.string(),
 });
 
+// Query string values are always strings - `z.coerce.boolean()` would treat
+// "false" as truthy (JS coerces any non-empty string to true), silently
+// making ?force=false behave like force=true. An explicit string enum with a
+// manual `=== 'true'` check in the handler avoids that trap.
+const deleteTenantQuerySchema = z.object({
+  force: z.enum(['true', 'false']).optional(),
+});
+
+const tenantHasUsersErrorSchema = z.object({
+  error: z.literal('TENANT_HAS_USERS'),
+  userCount: z.number().int().nonnegative(),
+});
+
 // Portfolio demo safeguard against exhausting the free-tier database plan.
 // Set well above the tenant count our own test suite creates in a single
 // run (see tenant.routes.spec.ts + auth.e2e.spec.ts), so CI never trips it.
@@ -277,21 +290,30 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['Tenants'],
         summary: 'Delete a tenant',
-        description: 'Admin only. Fails if the tenant still has users; remove or reassign them first.',
+        description:
+          'Admin only. By default, fails with 409 if the tenant still has users - pass ' +
+          '?force=true to delete the tenant and cascade-delete its users too. Intended to back ' +
+          'a "type to confirm" / double-confirmation flow on the frontend.',
         security: [{ cookieAuth: [] }],
         params: tenantIdParamsSchema,
+        querystring: deleteTenantQuerySchema,
         response: {
           200: withDescription(deleteTenantResponseSchema, 'Tenant deleted successfully'),
           401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
           403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
           404: withDescription(errorResponseSchema, 'No tenant matches the given id'),
-          409: withDescription(errorResponseSchema, 'Tenant still has users and cannot be deleted'),
+          409: withDescription(
+            tenantHasUsersErrorSchema,
+            'Tenant still has users; retry with ?force=true to delete them too',
+          ),
           500: withDescription(errorResponseSchema, 'Unexpected server error'),
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
+      const { force } = request.query;
+      const forceDelete = force === 'true';
 
       const existingTenant = await prisma.tenant.findUnique({ where: { id } });
 
@@ -299,14 +321,16 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.status(404).send({ error: 'Tenant not found' });
       }
 
-      // User.tenantId has an ON DELETE RESTRICT foreign key, so deleting a
-      // tenant that still has users would otherwise fail as an opaque 500.
-      const userCount = await prisma.user.count({ where: { tenantId: id } });
+      if (!forceDelete) {
+        const userCount = await prisma.user.count({ where: { tenantId: id } });
 
-      if (userCount > 0) {
-        return reply.status(409).send({ error: 'Tenant still has users and cannot be deleted' });
+        if (userCount > 0) {
+          return reply.status(409).send({ error: 'TENANT_HAS_USERS', userCount });
+        }
       }
 
+      // With force=true (or no remaining users), User.tenantId's ON DELETE
+      // CASCADE handles removing the tenant's users at the database level.
       await prisma.tenant.delete({ where: { id } });
 
       return reply.status(200).send({ message: 'Tenant deleted successfully' });
