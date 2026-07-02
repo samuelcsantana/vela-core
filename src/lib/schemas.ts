@@ -9,10 +9,12 @@ export const validationErrorResponseSchema = z.object({
   issues: z.array(z.any()).optional(),
 });
 
+export const roleSchema = z.enum(['VELA_ADMIN', 'ADMIN', 'MEMBER']);
+
 export const userPublicSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
-  role: z.string(),
+  role: roleSchema,
   tenantId: z.string().uuid(),
   createdAt: z.date(),
 });

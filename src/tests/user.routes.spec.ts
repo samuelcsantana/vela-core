@@ -1,13 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
-import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData, extractTokenCookie } from './helpers.js';
+import {
+  ADMIN_CREDENTIALS,
+  GUEST_CREDENTIALS,
+  VELA_ADMIN_CREDENTIALS,
+  seedBaseData,
+  extractTokenCookie,
+} from './helpers.js';
 
 describe('User routes - exception flows', () => {
   const app = buildApp();
   const createdUserEmails: string[] = [];
+  const createdTenantSlugs: string[] = [];
   let adminToken: string;
   let guestToken: string;
+  let velaAdminToken: string;
   let tenantId: string;
 
   beforeAll(async () => {
@@ -28,11 +36,22 @@ describe('User routes - exception flows', () => {
       payload: GUEST_CREDENTIALS,
     });
     guestToken = extractTokenCookie(guestLogin);
+
+    const velaAdminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: VELA_ADMIN_CREDENTIALS,
+    });
+    velaAdminToken = extractTokenCookie(velaAdminLogin);
   });
 
   afterAll(async () => {
+    // Users first - Tenant is ON DELETE RESTRICT.
     if (createdUserEmails.length > 0) {
       await prisma.user.deleteMany({ where: { email: { in: createdUserEmails } } });
+    }
+    if (createdTenantSlugs.length > 0) {
+      await prisma.tenant.deleteMany({ where: { slug: { in: createdTenantSlugs } } });
     }
     await app.close();
     await prisma.$disconnect();
@@ -92,16 +111,56 @@ describe('User routes - exception flows', () => {
     expect(response.statusCode).toBe(500);
   });
 
-  it('lists users scoped to the caller tenant', async () => {
+  it('blocks a MEMBER from listing users', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/users',
       cookies: { token: guestToken },
     });
 
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('scopes an ADMIN to only their own tenant, including tenant name/slug', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/users',
+      cookies: { token: adminToken },
+    });
+
     expect(response.statusCode).toBe(200);
-    const users = response.json() as Array<{ tenantId: string }>;
+    const users = response.json() as Array<{ tenantId: string; tenant: { name: string; slug: string } }>;
     expect(Array.isArray(users)).toBe(true);
+    expect(users.length).toBeGreaterThan(0);
     expect(users.every((user) => user.tenantId === tenantId)).toBe(true);
+    expect(users.every((user) => user.tenant.slug === 'vela')).toBe(true);
+  });
+
+  it('lets a VELA_ADMIN see users across every tenant', async () => {
+    const otherSlug = `other-tenant-${Date.now()}`;
+    createdTenantSlugs.push(otherSlug);
+
+    const otherTenant = await prisma.tenant.create({ data: { name: 'Other Co', slug: otherSlug } });
+
+    const otherEmail = `member-of-other-${Date.now()}@example.com`;
+    createdUserEmails.push(otherEmail);
+
+    await prisma.user.create({
+      data: { email: otherEmail, passwordHash: 'irrelevant-for-this-test', tenantId: otherTenant.id },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/users',
+      cookies: { token: velaAdminToken },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const users = response.json() as Array<{ email: string; tenantId: string }>;
+    const tenantIdsSeen = new Set(users.map((user) => user.tenantId));
+
+    expect(tenantIdsSeen.has(tenantId)).toBe(true);
+    expect(tenantIdsSeen.has(otherTenant.id)).toBe(true);
+    expect(users.some((user) => user.email === otherEmail)).toBe(true);
   });
 });

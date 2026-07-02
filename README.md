@@ -34,14 +34,17 @@ Vela Core follows a **shared database, shared schema** multi-tenancy model:
 Authorization is layered on top of authentication using two composable Fastify hooks (`src/lib/auth.ts`):
 
 - **`authenticate`** — verifies the JWT stored in the `token` httpOnly cookie via `@fastify/jwt`. Populates `request.user` with `{ id, role, tenantId }`. The `Authorization` header is not accepted; the token never touches client-side JavaScript, which protects it from XSS.
-- **`verifyAdmin`** — runs after `authenticate` and checks `request.user.role === 'ADMIN'`. Non-admins get a `403` with a standardized message.
+- **`verifyAdmin`** — runs after `authenticate` and checks `request.user.role === 'ADMIN' || request.user.role === 'VELA_ADMIN'`. Non-admins get a `403` with a standardized message.
 
-There are two roles:
+`role` is a Postgres enum (`prisma/schema.prisma`) with three tiers:
 
-| Role     | Can do                                                                 |
-| -------- | ------------------------------------------------------------------------ |
-| `ADMIN`  | Create, update and delete tenants (`POST`/`PATCH`/`DELETE /api/tenants`), create users (`POST /api/users`), plus everything a `MEMBER` can do |
-| `MEMBER` | List tenants, list users of their own tenant, read tenant white-label data |
+| Role         | Scope                        | Can do                                                                 |
+| ------------ | ----------------------------- | ------------------------------------------------------------------------ |
+| `VELA_ADMIN` | System-wide (root)            | Everything `ADMIN` can do, across **every** tenant — e.g. `GET /api/users` returns all users system-wide, not just their own tenant's. |
+| `ADMIN`      | Own tenant                    | Create, update and delete tenants (`POST`/`PATCH`/`DELETE /api/tenants`), create users and list users (`POST`/`GET /api/users`, scoped to their own tenant). |
+| `MEMBER`     | Own tenant, read-only         | List tenants, read tenant white-label data. Cannot call `GET /api/users` (`403`). |
+
+There is currently no API route to promote a user to `ADMIN` or `VELA_ADMIN` — those roles are only ever set via `prisma/seed.ts` or direct database access.
 
 | Endpoint                   | Auth required                  | Notes                                                              |
 | ---------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
@@ -54,7 +57,7 @@ There are two roles:
 | `POST /api/tenants`        | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; optional `logo` file uploads to S3. |
 | `PATCH /api/tenants/:id`   | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; partial update, including `logo`. |
 | `DELETE /api/tenants/:id`  | `authenticate` + `verifyAdmin`  | Admins only. Fails with `409` if the tenant still has users. |
-| `GET /api/users`           | `authenticate`                  | Scoped to the caller's own tenant.                                  |
+| `GET /api/users`           | `authenticate` + `verifyAdmin`  | Admins only (`MEMBER` gets `403`). `VELA_ADMIN` sees every tenant; `ADMIN` sees only their own. Includes `tenant: { name, slug }`. |
 | `POST /api/users`          | `authenticate` + `verifyAdmin`  | Admins only.                                                        |
 
 ## Local Setup
@@ -110,12 +113,13 @@ npm run build
 npm start
 ```
 
-The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) with two accounts for evaluation purposes:
+The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) with three accounts for evaluation purposes:
 
-| Email             | Password  | Role     |
-| ----------------- | --------- | -------- |
-| `admin@vela.com`  | `admin123`| `ADMIN`  |
-| `guest@vela.com`  | `guest123`| `MEMBER` |
+| Email                 | Password       | Role         |
+| --------------------- | -------------- | ------------ |
+| `velaadmin@vela.com`  | `velaadmin123` | `VELA_ADMIN` |
+| `admin@vela.com`      | `admin123`     | `ADMIN`      |
+| `guest@vela.com`      | `guest123`     | `MEMBER`     |
 
 ## API Documentation
 

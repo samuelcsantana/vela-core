@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
-import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, withDescription } from '../lib/schemas.js';
+import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, roleSchema, withDescription } from '../lib/schemas.js';
 
 const loginBodySchema = z.object({
   email: z.string().email(),
@@ -19,7 +19,7 @@ const registerBodySchema = z.object({
   tenantId: z.string().uuid(),
   // Accepted for API contract compatibility with the tenant picker flow, but
   // intentionally ignored by the handler below — see the comment there.
-  role: z.enum(['ADMIN', 'MEMBER']).optional(),
+  role: roleSchema.optional(),
 });
 
 export const authRoutes: FastifyPluginAsyncZod = async (app) => {

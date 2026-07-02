@@ -9,8 +9,20 @@ async function main() {
     create: { slug: 'vela', name: 'Vela Admin' },
   });
 
+  const velaAdminPasswordHash = await bcrypt.hash('velaadmin123', 10);
   const adminPasswordHash = await bcrypt.hash('admin123', 10);
   const guestPasswordHash = await bcrypt.hash('guest123', 10);
+
+  await prisma.user.upsert({
+    where: { email: 'velaadmin@vela.com' },
+    update: {},
+    create: {
+      email: 'velaadmin@vela.com',
+      passwordHash: velaAdminPasswordHash,
+      role: 'VELA_ADMIN',
+      tenantId: tenant.id,
+    },
+  });
 
   await prisma.user.upsert({
     where: { email: 'admin@vela.com' },

@@ -11,6 +11,13 @@ const createUserBodySchema = z.object({
   tenantId: z.string().uuid(),
 });
 
+const userWithTenantSchema = userPublicSchema.extend({
+  tenant: z.object({
+    name: z.string(),
+    slug: z.string(),
+  }),
+});
+
 export const userRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/users',
@@ -55,29 +62,35 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/users',
     {
-      preHandler: [app.authenticate],
+      preHandler: [app.authenticate, verifyAdmin],
       schema: {
         tags: ['Users'],
-        summary: "List the caller's tenant users",
-        description: 'Any authenticated user can list users scoped to their own tenant.',
+        summary: 'List users',
+        description:
+          'Admin only (MEMBER gets 403). VELA_ADMIN sees every user across every tenant; ' +
+          'ADMIN sees only users in their own tenant. Each user includes its tenant name and slug.',
         security: [{ cookieAuth: [] }],
         response: {
-          200: withDescription(z.array(userPublicSchema), "List of the caller's tenant users"),
+          200: withDescription(z.array(userWithTenantSchema), 'List of users, scoped by role'),
           401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
+          403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
         },
       },
     },
     async (request, reply) => {
-      const { tenantId } = request.user;
+      const { role, tenantId } = request.user;
 
       const users = await prisma.user.findMany({
-        where: { tenantId },
+        where: role === 'VELA_ADMIN' ? {} : { tenantId },
         select: {
           id: true,
           email: true,
           role: true,
           tenantId: true,
           createdAt: true,
+          tenant: {
+            select: { name: true, slug: true },
+          },
         },
       });
 
