@@ -5,91 +5,69 @@ import { ADMIN_CREDENTIALS, seedBaseData } from './helpers.js';
 
 describe('POST /api/auth/register', () => {
   const app = buildApp();
-  const createdTenantSlugs: string[] = [];
   const createdUserEmails: string[] = [];
+  let tenantId: string;
 
   beforeAll(async () => {
     await app.ready();
-    await seedBaseData();
+    const tenant = await seedBaseData();
+    tenantId = tenant.id;
   });
 
   afterAll(async () => {
     if (createdUserEmails.length > 0) {
       await prisma.user.deleteMany({ where: { email: { in: createdUserEmails } } });
     }
-    if (createdTenantSlugs.length > 0) {
-      await prisma.tenant.deleteMany({ where: { slug: { in: createdTenantSlugs } } });
-    }
     await app.close();
     await prisma.$disconnect();
   });
 
-  it('registers a new tenant and its admin user without requiring auth', async () => {
-    const slug = `onboard-${Date.now()}`;
-    const email = `owner-${Date.now()}@example.com`;
-    createdTenantSlugs.push(slug);
+  it('registers a MEMBER user under an existing tenant without requiring auth', async () => {
+    const email = `member-${Date.now()}@example.com`;
     createdUserEmails.push(email);
 
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: {
-        companyName: 'Onboard Co',
-        slug,
-        email,
-        password: 'secret123',
-        primaryColor: '#FF6600',
-        logoUrl: 'https://example.com/logo.png',
-      },
+      payload: { email, password: 'secret123', tenantId },
     });
 
     expect(response.statusCode).toBe(201);
 
     const body = response.json();
-    expect(body.tenantId).toEqual(expect.any(String));
-    expect(body.userId).toEqual(expect.any(String));
+    expect(body.id).toEqual(expect.any(String));
+    expect(body.email).toBe(email);
+    expect(body.role).toBe('MEMBER');
+    expect(body.tenantId).toBe(tenantId);
     expect(body.password).toBeUndefined();
-
-    const tenant = await prisma.tenant.findUnique({ where: { slug } });
-    expect(tenant).not.toBeNull();
-    expect(tenant?.id).toBe(body.tenantId);
-    expect(tenant?.name).toBe('Onboard Co');
-    expect(tenant?.primaryColor).toBe('#FF6600');
-    expect(tenant?.logoUrl).toBe('https://example.com/logo.png');
+    expect(body.passwordHash).toBeUndefined();
 
     const user = await prisma.user.findUnique({ where: { email } });
-    expect(user).not.toBeNull();
-    expect(user?.id).toBe(body.userId);
-    expect(user?.role).toBe('ADMIN');
-    expect(user?.tenantId).toBe(body.tenantId);
+    expect(user?.role).toBe('MEMBER');
   });
 
-  it('returns 409 when the slug already exists', async () => {
+  it('ignores a client-supplied ADMIN role and forces MEMBER (privilege escalation guard)', async () => {
+    const email = `escalation-attempt-${Date.now()}@example.com`;
+    createdUserEmails.push(email);
+
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: {
-        companyName: 'Duplicate Slug Co',
-        slug: 'vela',
-        email: `dup-slug-${Date.now()}@example.com`,
-        password: 'secret123',
-      },
+      payload: { email, password: 'secret123', tenantId, role: 'ADMIN' },
     });
 
-    expect(response.statusCode).toBe(409);
-    expect(response.json().error).toBe('A tenant with this slug already exists');
+    expect(response.statusCode).toBe(201);
+    expect(response.json().role).toBe('MEMBER');
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    expect(user?.role).toBe('MEMBER');
   });
 
   it('returns 409 when the email already exists', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: {
-        companyName: 'Duplicate Email Co',
-        slug: `dup-email-${Date.now()}`,
-        email: ADMIN_CREDENTIALS.email,
-        password: 'secret123',
-      },
+      payload: { email: ADMIN_CREDENTIALS.email, password: 'secret123', tenantId },
     });
 
     expect(response.statusCode).toBe(409);
@@ -100,9 +78,23 @@ describe('POST /api/auth/register', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: { slug: `invalid-${Date.now()}` },
+      payload: { email: 'not-an-email', password: 'secret123' },
     });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  it('returns 500 when tenantId does not reference an existing tenant', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: `orphan-${Date.now()}@example.com`,
+        password: 'secret123',
+        tenantId: '00000000-0000-0000-0000-000000000000',
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
   });
 });

@@ -24,6 +24,12 @@ const tenantResponseSchema = z.object({
   createdAt: z.date(),
 });
 
+const tenantPublicListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string(),
+});
+
 export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/tenants',
@@ -73,6 +79,29 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const tenants = await prisma.tenant.findMany();
+
+      return reply.send(tenants);
+    },
+  );
+
+  app.get(
+    '/tenants/public',
+    {
+      schema: {
+        tags: ['Tenants'],
+        summary: 'List tenants (public, minimal fields)',
+        description:
+          'Public. Returns only non-sensitive fields (id, name, slug) for every tenant, ' +
+          'to populate the tenant picker on the registration screen.',
+        response: {
+          200: withDescription(z.array(tenantPublicListItemSchema), 'List of tenants (public fields only)'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const tenants = await prisma.tenant.findMany({
+        select: { id: true, name: true, slug: true },
+      });
 
       return reply.send(tenants);
     },

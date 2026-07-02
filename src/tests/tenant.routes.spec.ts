@@ -39,6 +39,21 @@ describe('Tenant routes - exception flows', () => {
     expect(Array.isArray(response.json())).toBe(true);
   });
 
+  it('lists public tenant fields without requiring auth', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tenants/public',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const tenants = response.json() as Array<Record<string, unknown>>;
+    expect(Array.isArray(tenants)).toBe(true);
+    expect(tenants.some((tenant) => tenant.slug === 'vela')).toBe(true);
+
+    const velaTenant = tenants.find((tenant) => tenant.slug === 'vela');
+    expect(Object.keys(velaTenant!).sort()).toEqual(['id', 'name', 'slug']);
+  });
+
   it('returns 404 for a slug that does not exist', async () => {
     const response = await app.inject({
       method: 'GET',

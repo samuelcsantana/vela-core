@@ -14,17 +14,12 @@ const logoutResponseSchema = z.object({
 });
 
 const registerBodySchema = z.object({
-  companyName: z.string(),
-  slug: z.string(),
   email: z.string().email(),
   password: z.string().min(6),
-  primaryColor: z.string().optional(),
-  logoUrl: z.string().optional(),
-});
-
-const registerResponseSchema = z.object({
   tenantId: z.string().uuid(),
-  userId: z.string().uuid(),
+  // Accepted for API contract compatibility with the tenant picker flow, but
+  // intentionally ignored by the handler below — see the comment there.
+  role: z.enum(['ADMIN', 'MEMBER']).optional(),
 });
 
 export const authRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -106,32 +101,25 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         tags: ['Auth'],
-        summary: 'Register a new tenant',
+        summary: 'Register a user under an existing tenant',
         description:
-          'Public. Creates a Tenant and its first ADMIN user in a single transaction. ' +
+          'Public. Joins an existing tenant (picked via GET /tenants/public) as a MEMBER. ' +
+          'The role field is ignored server-side — self-registered users are always MEMBER; ' +
+          'promoting someone to ADMIN requires an authenticated admin via POST /users. ' +
           'Does not log in automatically — use POST /auth/login afterwards.',
         body: registerBodySchema,
         response: {
-          201: withDescription(registerResponseSchema, 'Tenant and admin user created successfully'),
+          201: withDescription(userPublicSchema, 'User created successfully'),
           400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
-          409: withDescription(
-            errorResponseSchema,
-            'A tenant with this slug or a user with this email already exists',
-          ),
+          409: withDescription(errorResponseSchema, 'A user with this email already exists'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error, e.g. tenantId does not reference an existing tenant'),
         },
       },
     },
     async (request, reply) => {
-      const { companyName, slug, email, password, primaryColor, logoUrl } = request.body;
+      const { email, password, tenantId } = request.body;
 
-      const [existingTenant, existingUser] = await Promise.all([
-        prisma.tenant.findUnique({ where: { slug } }),
-        prisma.user.findUnique({ where: { email } }),
-      ]);
-
-      if (existingTenant) {
-        return reply.status(409).send({ error: 'A tenant with this slug already exists' });
-      }
+      const existingUser = await prisma.user.findUnique({ where: { email } });
 
       if (existingUser) {
         return reply.status(409).send({ error: 'A user with this email already exists' });
@@ -139,24 +127,21 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
 
       const passwordHash = await bcrypt.hash(password, 10);
 
-      const { tenant, user } = await prisma.$transaction(async (tx) => {
-        const tenant = await tx.tenant.create({
-          data: { name: companyName, slug, primaryColor, logoUrl },
-        });
-
-        const user = await tx.user.create({
-          data: {
-            email,
-            passwordHash,
-            role: 'ADMIN',
-            tenantId: tenant.id,
-          },
-        });
-
-        return { tenant, user };
+      // role is never taken from the request body: this is a public,
+      // unauthenticated endpoint, so trusting a client-supplied role would let
+      // anyone self-assign ADMIN on any tenant (tenant ids are public via
+      // GET /tenants/public). Self-registration is always MEMBER.
+      const user = await prisma.user.create({
+        data: { email, passwordHash, tenantId, role: 'MEMBER' },
       });
 
-      return reply.status(201).send({ tenantId: tenant.id, userId: user.id });
+      return reply.status(201).send({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId,
+        createdAt: user.createdAt,
+      });
     },
   );
 };
