@@ -11,6 +11,7 @@ import { setupErrorHandler } from './lib/errorHandler.js';
 import { tenantRoutes } from './routes/tenant.routes.js';
 import { userRoutes } from './routes/user.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
+import { metricsRoutes } from './routes/metrics.routes.js';
 
 export function buildApp() {
   const app = Fastify({
@@ -44,6 +45,7 @@ export function buildApp() {
   app.register(tenantRoutes, { prefix: '/api' });
   app.register(userRoutes, { prefix: '/api' });
   app.register(authRoutes, { prefix: '/api' });
+  app.register(metricsRoutes, { prefix: '/api' });
 
   app.get('/ping', async () => {
     return { status: 'ok' };

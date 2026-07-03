@@ -59,6 +59,7 @@ There is currently no API route to promote a user to `ADMIN` or `VELA_ADMIN` —
 | `DELETE /api/tenants/:id`  | `authenticate` + `verifyAdmin`  | Admins only. `409 { error: 'TENANT_HAS_USERS', userCount }` if the tenant still has users, unless `?force=true` (cascade-deletes its users too). |
 | `GET /api/users`           | `authenticate` + `verifyAdmin`  | Admins only (`MEMBER` gets `403`). `VELA_ADMIN` sees every tenant; `ADMIN` sees only their own. Includes `tenant: { name, slug }`. |
 | `POST /api/users`          | `authenticate` + `verifyAdmin`  | Admins only. Optional `role` (`ADMIN`/`MEMBER`, default `MEMBER`). `VELA_ADMIN` sets `tenantId` freely; `ADMIN`'s payload `tenantId` is ignored and forced to their own tenant. |
+| `GET /api/metrics/dashboard` | `authenticate`                | Any authenticated user (not admin-restricted). Response shape depends on role: `VELA_ADMIN` gets `scope: "GLOBAL"` (`totalTenants`, `totalUsers`, a per-tenant user breakdown, the 5 most recent signups); `ADMIN`/`MEMBER` get `scope: "TENANT"` (`totalUsers` and a per-role breakdown, scoped to their own tenant). |
 
 ## Local Setup
 
