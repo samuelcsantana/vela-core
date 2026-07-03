@@ -8,7 +8,13 @@ import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, w
 const createUserBodySchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  tenantId: z.string().uuid(),
+  // Required for VELA_ADMIN (which tenant is this user for?), but ignored
+  // for a tenant ADMIN - see the RBAC comment in the handler below. Optional
+  // here so an ADMIN caller isn't forced to send a value that won't be used.
+  tenantId: z.string().uuid().optional(),
+  // VELA_ADMIN is deliberately not an assignable option: creating a root
+  // account still requires direct database/seed access, not this endpoint.
+  role: z.enum(['ADMIN', 'MEMBER']).optional(),
 });
 
 const userWithTenantSchema = userPublicSchema.extend({
@@ -26,12 +32,20 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['Users'],
         summary: 'Create a new user',
-        description: 'Admin only. Creates a user under the given tenant. Never returns the password hash.',
+        description:
+          'Admin only. Never returns the password hash. VELA_ADMIN may create a user for any ' +
+          'tenantId with any role (ADMIN or MEMBER, default MEMBER). A tenant ADMIN can only ' +
+          'create users in their own tenant - a tenantId in the payload is ignored and replaced ' +
+          "with the caller's own tenantId, so one tenant's admin can never provision users in " +
+          'another tenant.',
         security: [{ cookieAuth: [] }],
         body: createUserBodySchema,
         response: {
           201: withDescription(userPublicSchema, 'User created successfully'),
-          400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
+          400: withDescription(
+            validationErrorResponseSchema,
+            'Invalid request body, or tenantId missing while creating as VELA_ADMIN',
+          ),
           401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
           403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
           409: withDescription(errorResponseSchema, 'A user with this email already exists'),
@@ -40,12 +54,27 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { email, password, tenantId } = request.body;
+      const { email, password, tenantId: requestedTenantId, role } = request.body;
+      const requester = request.user;
+
+      let tenantId: string;
+
+      if (requester.role === 'VELA_ADMIN') {
+        if (!requestedTenantId) {
+          return reply.status(400).send({ error: 'tenantId is required when creating a user as VELA_ADMIN' });
+        }
+        tenantId = requestedTenantId;
+      } else {
+        // Tenant ADMIN: always scoped to their own tenant, regardless of
+        // what was sent in the payload - prevents provisioning users into
+        // another company.
+        tenantId = requester.tenantId;
+      }
 
       const passwordHash = await bcrypt.hash(password, 10);
 
       const user = await prisma.user.create({
-        data: { email, passwordHash, tenantId },
+        data: { email, passwordHash, tenantId, role: role ?? 'MEMBER' },
         select: {
           id: true,
           email: true,

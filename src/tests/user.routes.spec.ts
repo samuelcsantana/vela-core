@@ -96,11 +96,14 @@ describe('User routes - exception flows', () => {
     expect(response.json()).toEqual({ error: 'Resource already exists' });
   });
 
-  it('returns 500 when the referenced tenant does not exist', async () => {
+  it('returns 500 when VELA_ADMIN references a tenant that does not exist', async () => {
+    // A tenant ADMIN's tenantId is always overridden with their own (see the
+    // test below), so this FK-violation path can only be reached by a
+    // VELA_ADMIN, who is trusted to supply tenantId directly.
     const response = await app.inject({
       method: 'POST',
       url: '/api/users',
-      cookies: { token: adminToken },
+      cookies: { token: velaAdminToken },
       payload: {
         email: `orphan-${Date.now()}@vela.com`,
         password: 'secret123',
@@ -109,6 +112,89 @@ describe('User routes - exception flows', () => {
     });
 
     expect(response.statusCode).toBe(500);
+  });
+
+  it('returns 400 when VELA_ADMIN omits tenantId', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      cookies: { token: velaAdminToken },
+      payload: { email: `no-tenant-${Date.now()}@example.com`, password: 'secret123' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('tenantId is required when creating a user as VELA_ADMIN');
+  });
+
+  it("ignores a tenant ADMIN's payload tenantId and scopes the new user to the admin's own tenant", async () => {
+    const otherSlug = `admin-cannot-touch-${Date.now()}`;
+    createdTenantSlugs.push(otherSlug);
+    const otherTenant = await prisma.tenant.create({ data: { name: 'Other Co', slug: otherSlug } });
+
+    const email = `boundary-check-${Date.now()}@vela.com`;
+    createdUserEmails.push(email);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      cookies: { token: adminToken },
+      payload: { email, password: 'secret123', tenantId: otherTenant.id },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().tenantId).toBe(tenantId);
+    expect(response.json().tenantId).not.toBe(otherTenant.id);
+  });
+
+  it('lets a tenant ADMIN create a co-admin within their own tenant', async () => {
+    const email = `co-admin-${Date.now()}@vela.com`;
+    createdUserEmails.push(email);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      cookies: { token: adminToken },
+      payload: { email, password: 'secret123', role: 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().role).toBe('ADMIN');
+    expect(response.json().tenantId).toBe(tenantId);
+  });
+
+  it('defaults role to MEMBER when omitted', async () => {
+    const email = `default-role-${Date.now()}@vela.com`;
+    createdUserEmails.push(email);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      cookies: { token: adminToken },
+      payload: { email, password: 'secret123' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().role).toBe('MEMBER');
+  });
+
+  it('lets VELA_ADMIN create a user with an explicit role for any tenant', async () => {
+    const otherSlug = `vela-admin-target-${Date.now()}`;
+    createdTenantSlugs.push(otherSlug);
+    const otherTenant = await prisma.tenant.create({ data: { name: 'Vela Admin Target Co', slug: otherSlug } });
+
+    const email = `vela-admin-created-${Date.now()}@example.com`;
+    createdUserEmails.push(email);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      cookies: { token: velaAdminToken },
+      payload: { email, password: 'secret123', tenantId: otherTenant.id, role: 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().tenantId).toBe(otherTenant.id);
+    expect(response.json().role).toBe('ADMIN');
   });
 
   it('blocks a MEMBER from listing users', async () => {
