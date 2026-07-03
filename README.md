@@ -10,7 +10,7 @@ Backend API for **Vela**, a multi-tenant SaaS platform. Built with Fastify and T
 
 | Layer          | Technology                                             |
 | -------------- | ------------------------------------------------------- |
-| Runtime        | Node.js (TypeScript, ES2022, NodeNext modules)           |
+| Runtime        | Node.js (TypeScript, ES2022, native ESM via NodeNext modules) |
 | HTTP framework | [Fastify 5](https://fastify.dev/)                        |
 | ORM            | [Prisma 7](https://www.prisma.io/) (`@prisma/adapter-pg`) |
 | Database       | PostgreSQL                                                |
