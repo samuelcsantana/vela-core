@@ -16,10 +16,11 @@ export const swaggerPlugin = fp(async (app: FastifyInstance) => {
       },
       components: {
         securitySchemes: {
-          bearerAuth: {
-            type: 'http',
-            scheme: 'bearer',
-            bearerFormat: 'JWT',
+          cookieAuth: {
+            type: 'apiKey',
+            in: 'cookie',
+            name: 'token',
+            description: 'JWT set as an httpOnly cookie by POST /api/auth/login',
           },
         },
       },

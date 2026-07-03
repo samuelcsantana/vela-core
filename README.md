@@ -16,6 +16,8 @@ Backend API for **Vela**, a multi-tenant SaaS platform. Built with Fastify and T
 | Database       | PostgreSQL                                                |
 | Validation     | [Zod](https://zod.dev/)                                   |
 | Auth           | `@fastify/jwt` + `bcryptjs`                                |
+| Security headers | `@fastify/helmet` (HSTS, X-Frame-Options, X-Content-Type-Options, etc.) |
+| File uploads   | `@fastify/multipart` + AWS S3 (`@aws-sdk/client-s3`), for tenant logos |
 | API Docs       | `@fastify/swagger` + `@fastify/swagger-ui` (OpenAPI 3.0.0) |
 | Testing        | [Vitest](https://vitest.dev/) + `@vitest/coverage-v8`      |
 | CI/CD          | GitHub Actions (with an ephemeral Postgres 15 service)     |
@@ -32,24 +34,33 @@ Vela Core follows a **shared database, shared schema** multi-tenancy model:
 
 Authorization is layered on top of authentication using two composable Fastify hooks (`src/lib/auth.ts`):
 
-- **`authenticate`** — verifies the `Authorization: Bearer <token>` header via `@fastify/jwt`. Populates `request.user` with `{ id, role, tenantId }`.
-- **`verifyAdmin`** — runs after `authenticate` and checks `request.user.role === 'ADMIN'`. Non-admins get a `403` with a standardized message.
+- **`authenticate`** — verifies the JWT stored in the `token` httpOnly cookie via `@fastify/jwt`. Populates `request.user` with `{ id, role, tenantId }`. The `Authorization` header is not accepted; the token never touches client-side JavaScript, which protects it from XSS.
+- **`verifyAdmin`** — runs after `authenticate` and checks `request.user.role === 'ADMIN' || request.user.role === 'VELA_ADMIN'`. Non-admins get a `403` with a standardized message.
 
-There are two roles:
+`role` is a Postgres enum (`prisma/schema.prisma`) with three tiers:
 
-| Role     | Can do                                                                 |
-| -------- | ------------------------------------------------------------------------ |
-| `ADMIN`  | Create tenants (`POST /api/tenants`), create users (`POST /api/users`), plus everything a `MEMBER` can do |
-| `MEMBER` | List tenants, list users of their own tenant, read tenant white-label data |
+| Role         | Scope                        | Can do                                                                 |
+| ------------ | ----------------------------- | ------------------------------------------------------------------------ |
+| `VELA_ADMIN` | System-wide (root)            | Everything `ADMIN` can do, across **every** tenant — e.g. `GET /api/users` returns all users system-wide, not just their own tenant's. |
+| `ADMIN`      | Own tenant                    | Create, update and delete tenants (`POST`/`PATCH`/`DELETE /api/tenants`), create users and list users (`POST`/`GET /api/users`, scoped to their own tenant). |
+| `MEMBER`     | Own tenant, read-only         | List tenants, read tenant white-label data. Cannot call `GET /api/users` (`403`). |
 
-| Endpoint                | Auth required   | Notes                                   |
-| ------------------------ | --------------- | ---------------------------------------- |
-| `POST /api/auth/login`   | —               | Public. Returns a JWT.                   |
-| `GET /api/tenants/:slug` | —               | Public. Used for white-label branding.   |
-| `GET /api/tenants`       | `authenticate`  | Any authenticated user.                  |
-| `POST /api/tenants`      | `authenticate` + `verifyAdmin` | Admins only. |
-| `GET /api/users`         | `authenticate`  | Scoped to the caller's own tenant.       |
-| `POST /api/users`        | `authenticate` + `verifyAdmin` | Admins only. |
+There is currently no API route to promote a user to `ADMIN` or `VELA_ADMIN` — those roles are only ever set via `prisma/seed.ts` or direct database access.
+
+| Endpoint                   | Auth required                  | Notes                                                              |
+| ---------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
+| `POST /api/auth/login`     | —                               | Public. Sets the `token` httpOnly cookie.                          |
+| `POST /api/auth/logout`    | —                               | Public. Clears the `token` cookie.                                 |
+| `POST /api/auth/register`  | —                               | Public. Joins an existing tenant as `MEMBER` (a client-supplied `role` is ignored). |
+| `GET /api/tenants/:slug`   | —                               | Public. White-label branding lookup, used before login.            |
+| `GET /api/tenants/public`  | —                               | Public. Minimal fields (`id`, `name`, `slug`) for a tenant picker.  |
+| `GET /api/tenants`         | `authenticate`                  | Any authenticated user.                                             |
+| `POST /api/tenants`        | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; optional `logo` file uploads to S3. |
+| `PATCH /api/tenants/:id`   | `authenticate` + `verifyAdmin`  | Admins only. `multipart/form-data`; partial update, including `logo`. |
+| `DELETE /api/tenants/:id`  | `authenticate` + `verifyAdmin`  | Admins only. `409 { error: 'TENANT_HAS_USERS', userCount }` if the tenant still has users, unless `?force=true` (cascade-deletes its users too). |
+| `GET /api/users`           | `authenticate` + `verifyAdmin`  | Admins only (`MEMBER` gets `403`). `VELA_ADMIN` sees every tenant; `ADMIN` sees only their own. Includes `tenant: { name, slug }`. |
+| `POST /api/users`          | `authenticate` + `verifyAdmin`  | Admins only. Optional `role` (`ADMIN`/`MEMBER`, default `MEMBER`). `VELA_ADMIN` sets `tenantId` freely; `ADMIN`'s payload `tenantId` is ignored and forced to their own tenant. |
+| `GET /api/metrics/dashboard` | `authenticate`                | Any authenticated user (not admin-restricted). Response shape depends on role: `VELA_ADMIN` gets `scope: "GLOBAL"` (`totalTenants`, `totalUsers`, a per-tenant user breakdown, the 5 most recent signups); `ADMIN`/`MEMBER` get `scope: "TENANT"` (`totalUsers` and a per-role breakdown, scoped to their own tenant). |
 
 ## Local Setup
 
@@ -65,7 +76,23 @@ Create a `.env` file in the project root:
 ```env
 DATABASE_URL="postgresql://user:password@host:5432/dbname"
 JWT_SECRET="your-secret-key"
+
+# Required for tenant logo uploads (POST/PATCH /api/tenants). The bucket must
+# grant public read via a bucket policy - do not rely on object ACLs, since
+# buckets created since April 2023 default to "Bucket owner enforced" object
+# ownership, which disables ACLs entirely.
+AWS_REGION="sa-east-1"
+AWS_ACCESS_KEY_ID="your-access-key-id"
+AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+AWS_S3_BUCKET_NAME="your-bucket-name"
+
+# Required when NODE_ENV=production (see below). The exact origin(s) allowed
+# to call this API with credentials - comma-separated for more than one
+# (e.g. a staging and a production frontend).
+FRONTEND_URL="https://app.your-domain.com"
 ```
+
+Set `NODE_ENV=production` when deploying behind HTTPS. This makes the `token` cookie `secure` (browsers will then only send it over HTTPS) and switches CORS from the hardcoded `http://localhost:3000` dev origin to `FRONTEND_URL` - which becomes **required**, the app refuses to start in production without it, rather than falling back to something permissive.
 
 ### Commands
 
@@ -93,12 +120,13 @@ npm run build
 npm start
 ```
 
-The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) with two accounts for evaluation purposes:
+The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) with three accounts for evaluation purposes:
 
-| Email             | Password  | Role     |
-| ----------------- | --------- | -------- |
-| `admin@vela.com`  | `admin123`| `ADMIN`  |
-| `guest@vela.com`  | `guest123`| `MEMBER` |
+| Email                   | Password          | Role         |
+| ----------------------- | ----------------- | ------------ |
+| `admin@vela.com`        | `admin123`        | `VELA_ADMIN` |
+| `tenantadmin@vela.com`  | `tenantadmin123`  | `ADMIN`      |
+| `guest@vela.com`        | `guest123`        | `MEMBER`     |
 
 ## API Documentation
 
@@ -108,7 +136,7 @@ Interactive OpenAPI 3.0.0 documentation (Swagger UI) is served at:
 GET /docs
 ```
 
-The raw OpenAPI spec is available at `GET /docs/json`. The spec declares a `bearerAuth` (JWT) security scheme, matching the `Authorization: Bearer <token>` header expected by protected routes.
+The raw OpenAPI spec is available at `GET /docs/json`. The spec declares a `cookieAuth` (apiKey, in `cookie`) security scheme, matching the httpOnly `token` cookie expected by protected routes. Since Swagger UI's "Try it out" can't set httpOnly cookies for you, log in via `POST /api/auth/login` from a real HTTP client (e.g. `curl -c`) to exercise protected routes interactively.
 
 ## Continuous Integration
 

@@ -12,6 +12,12 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  VELA_ADMIN
+  ADMIN
+  MEMBER
+}
+
 model Tenant {
   id           String   @id @default(uuid())
   slug         String   @unique
@@ -26,8 +32,8 @@ model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String
-  role         String   @default("MEMBER")
+  role         Role     @default(MEMBER)
   tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now())
 }

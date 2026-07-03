@@ -9,15 +9,32 @@ async function main() {
     create: { slug: 'vela', name: 'Vela Admin' },
   });
 
-  const adminPasswordHash = await bcrypt.hash('admin123', 10);
+  const rootAdminPasswordHash = await bcrypt.hash('admin123', 10);
+  const tenantAdminPasswordHash = await bcrypt.hash('tenantadmin123', 10);
   const guestPasswordHash = await bcrypt.hash('guest123', 10);
 
+  // admin@vela.com is the root demo account the frontend expects to be
+  // VELA_ADMIN. `update` explicitly sets the role too, not just `create`,
+  // so re-running the seed against a database where this account already
+  // exists (e.g. from before this role tier existed) still promotes it.
   await prisma.user.upsert({
     where: { email: 'admin@vela.com' },
-    update: {},
+    update: { role: 'VELA_ADMIN' },
     create: {
       email: 'admin@vela.com',
-      passwordHash: adminPasswordHash,
+      passwordHash: rootAdminPasswordHash,
+      role: 'VELA_ADMIN',
+      tenantId: tenant.id,
+    },
+  });
+
+  // Tenant-scoped admin demo account, distinct from the root VELA_ADMIN above.
+  await prisma.user.upsert({
+    where: { email: 'tenantadmin@vela.com' },
+    update: {},
+    create: {
+      email: 'tenantadmin@vela.com',
+      passwordHash: tenantAdminPasswordHash,
       role: 'ADMIN',
       tenantId: tenant.id,
     },

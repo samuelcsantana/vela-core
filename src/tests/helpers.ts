@@ -1,14 +1,64 @@
+import type { Response } from 'light-my-request';
 import bcrypt from 'bcryptjs';
+import FormData from 'form-data';
 import { prisma } from '../lib/prisma.js';
 
+export function extractTokenCookie(response: Response): string {
+  const token = response.cookies.find((cookie) => cookie.name === 'token')?.value;
+
+  if (!token) {
+    throw new Error('Login response did not set a token cookie');
+  }
+
+  return token;
+}
+
+export function buildTenantMultipart(
+  fields: Record<string, string>,
+  file?: { buffer: Buffer; filename: string; contentType: string; fieldname?: string },
+): { payload: Buffer; headers: Record<string, string> } {
+  const form = new FormData();
+
+  for (const [key, value] of Object.entries(fields)) {
+    form.append(key, value);
+  }
+
+  if (file) {
+    form.append(file.fieldname ?? 'logo', file.buffer, {
+      filename: file.filename,
+      contentType: file.contentType,
+    });
+  }
+
+  return {
+    payload: form.getBuffer(),
+    headers: form.getHeaders(),
+  };
+}
+
 export const GUEST_CREDENTIALS = { email: 'guest@vela.com', password: 'guest123' };
-export const ADMIN_CREDENTIALS = { email: 'admin@vela.com', password: 'admin123' };
+export const ADMIN_CREDENTIALS = { email: 'tenantadmin@vela.com', password: 'tenantadmin123' };
+export const VELA_ADMIN_CREDENTIALS = { email: 'admin@vela.com', password: 'admin123' };
 
 export async function seedBaseData() {
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'vela' },
     update: {},
     create: { slug: 'vela', name: 'Vela Admin' },
+  });
+
+  // admin@vela.com predates the VELA_ADMIN tier and may already exist with
+  // role ADMIN in a database seeded before this change - `update` promotes
+  // it, not just `create`.
+  await prisma.user.upsert({
+    where: { email: VELA_ADMIN_CREDENTIALS.email },
+    update: { role: 'VELA_ADMIN' },
+    create: {
+      email: VELA_ADMIN_CREDENTIALS.email,
+      passwordHash: await bcrypt.hash(VELA_ADMIN_CREDENTIALS.password, 10),
+      role: 'VELA_ADMIN',
+      tenantId: tenant.id,
+    },
   });
 
   await prisma.user.upsert({
