@@ -16,6 +16,7 @@ Backend API for **Vela**, a multi-tenant SaaS platform. Built with Fastify and T
 | Database       | PostgreSQL                                                |
 | Validation     | [Zod](https://zod.dev/)                                   |
 | Auth           | `@fastify/jwt` + `bcryptjs`                                |
+| Security headers | `@fastify/helmet` (HSTS, X-Frame-Options, X-Content-Type-Options, etc.) |
 | File uploads   | `@fastify/multipart` + AWS S3 (`@aws-sdk/client-s3`), for tenant logos |
 | API Docs       | `@fastify/swagger` + `@fastify/swagger-ui` (OpenAPI 3.0.0) |
 | Testing        | [Vitest](https://vitest.dev/) + `@vitest/coverage-v8`      |
@@ -84,9 +85,14 @@ AWS_REGION="sa-east-1"
 AWS_ACCESS_KEY_ID="your-access-key-id"
 AWS_SECRET_ACCESS_KEY="your-secret-access-key"
 AWS_S3_BUCKET_NAME="your-bucket-name"
+
+# Required when NODE_ENV=production (see below). The exact origin(s) allowed
+# to call this API with credentials - comma-separated for more than one
+# (e.g. a staging and a production frontend).
+FRONTEND_URL="https://app.your-domain.com"
 ```
 
-Set `NODE_ENV=production` when deploying behind HTTPS — it makes the `token` cookie `secure` (browsers will then only send it over HTTPS).
+Set `NODE_ENV=production` when deploying behind HTTPS. This makes the `token` cookie `secure` (browsers will then only send it over HTTPS) and switches CORS from the hardcoded `http://localhost:3000` dev origin to `FRONTEND_URL` - which becomes **required**, the app refuses to start in production without it, rather than falling back to something permissive.
 
 ### Commands
 
