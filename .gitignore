@@ -1,7 +1,10 @@
 node_modules
 dist
 coverage
-# Keep environment variables out of version control
-.env
+# Keep environment variables out of version control. Covers .env,
+# .env.development, .env.production, .env.local, etc. - but not .env.example,
+# which is a checked-in template with no real values.
+.env*
+!.env.example
 
 /src/generated/prisma
