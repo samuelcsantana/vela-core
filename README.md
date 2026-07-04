@@ -1,19 +1,19 @@
-# Vela Core
+# Vela Core - API (SaaS Backend)
 
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/samuelcsantana/vela-core/ci.yml?branch=main&label=CI%2FCD&logo=githubactions&logoColor=white)](https://github.com/samuelcsantana/vela-core/actions/workflows/ci.yml)
 [![Vulnerabilities](https://img.shields.io/badge/vulnerabilities-0%20high%2Fcritical-brightgreen?logo=npm&logoColor=white)](https://github.com/samuelcsantana/vela-core/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/samuelcsantana/vela-core/branch/main/graph/badge.svg)](https://codecov.io/gh/samuelcsantana/vela-core)
 
-Backend API for **Vela**, a multi-tenant SaaS platform. Built with Fastify and TypeScript, it provides tenant-scoped data isolation, JWT authentication, and role-based access control (RBAC) out of the box.
+Backend engine for **Vela**, a multi-tenant SaaS platform. Built with Fastify and TypeScript on a multi-tenant architecture, it provides tenant-scoped data isolation, JWT authentication, and role-based access control (RBAC) out of the box.
 
 ## Tech Stack
 
 | Layer          | Technology                                             |
 | -------------- | ------------------------------------------------------- |
-| Runtime        | Node.js (TypeScript, ES2022, native ESM via NodeNext modules) |
+| Runtime        | Node.js (TypeScript, ES2022, ESM modules via NodeNext)   |
 | HTTP framework | [Fastify 5](https://fastify.dev/)                        |
 | ORM            | [Prisma 7](https://www.prisma.io/) (`@prisma/adapter-pg`) |
-| Database       | PostgreSQL                                                |
+| Database       | PostgreSQL (developed against [Neon](https://neon.tech)) |
 | Validation     | [Zod](https://zod.dev/)                                   |
 | Auth           | `@fastify/jwt` + `bcryptjs`                                |
 | Security headers | `@fastify/helmet` (HSTS, X-Frame-Options, X-Content-Type-Options, etc.) |
@@ -21,6 +21,15 @@ Backend API for **Vela**, a multi-tenant SaaS platform. Built with Fastify and T
 | API Docs       | `@fastify/swagger` + `@fastify/swagger-ui` (OpenAPI 3.0.0) |
 | Testing        | [Vitest](https://vitest.dev/) + `@vitest/coverage-v8`      |
 | CI/CD          | GitHub Actions (with an ephemeral Postgres 15 service)     |
+
+## Security
+
+- **RBAC** - three-tier roles (`VELA_ADMIN` > `ADMIN` > `MEMBER`), enforced at the query level so tenant data never leaks across companies. Full details in [RBAC Security](#rbac-security) below.
+- **JWT authentication** - signed via `@fastify/jwt`, delivered as an `httpOnly` cookie (never touches client-side JavaScript, so it can't be exfiltrated by XSS). The `Authorization` header is not accepted.
+- **Restricted CORS** - no wildcard origin. In production, only the exact origin(s) in `FRONTEND_URL` are allowed (comma-separated for multiple, e.g. a Vercel production + preview URL); the app refuses to start in production without it set. The `token` cookie is `Secure` + `SameSite=None` in production to survive the cross-site request between a Vercel frontend and this API, and `SameSite=Lax` locally where there's no HTTPS.
+- **AWS S3 multipart upload** - tenant logo uploads (`POST`/`PATCH /api/tenants`) are parsed via `@fastify/multipart`, validated to be an image `mimetype` before upload, and require the bucket to grant public read via a bucket policy (not object ACLs, which are disabled by default on buckets created since April 2023).
+- **Security headers** - `@fastify/helmet` adds HSTS, `X-Content-Type-Options`, `X-Frame-Options`, and friends to every response.
+- **Credential hygiene** - all secrets (`DATABASE_URL`, `JWT_SECRET`, AWS keys) are read exclusively from `process.env`, never hardcoded. `.gitignore` blocks every `.env*` variant except the checked-in `.env.example` template.
 
 ## Multi-tenant Architecture
 
@@ -71,26 +80,23 @@ There is currently no API route to promote a user to `ADMIN` or `VELA_ADMIN` —
 
 ### Environment variables
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill in real values - never commit `.env` itself (it's gitignored, along with every other `.env.*` variant except the example file):
 
-```env
-DATABASE_URL="postgresql://user:password@host:5432/dbname"
-JWT_SECRET="your-secret-key"
-
-# Required for tenant logo uploads (POST/PATCH /api/tenants). The bucket must
-# grant public read via a bucket policy - do not rely on object ACLs, since
-# buckets created since April 2023 default to "Bucket owner enforced" object
-# ownership, which disables ACLs entirely.
-AWS_REGION="sa-east-1"
-AWS_ACCESS_KEY_ID="your-access-key-id"
-AWS_SECRET_ACCESS_KEY="your-secret-access-key"
-AWS_S3_BUCKET_NAME="your-bucket-name"
-
-# Required when NODE_ENV=production (see below). The exact origin(s) allowed
-# to call this API with credentials - comma-separated for more than one
-# (e.g. a staging and a production frontend).
-FRONTEND_URL="https://app.your-domain.com"
+```bash
+cp .env.example .env
 ```
+
+| Variable                | Required        | Purpose                                                                 |
+| ------------------------ | ---------------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`          | Always           | PostgreSQL connection string.                                          |
+| `JWT_SECRET`            | Always           | Signs and verifies the auth JWT.                                       |
+| `AWS_REGION`            | For logo uploads | S3 bucket's region.                                                    |
+| `AWS_ACCESS_KEY_ID`     | For logo uploads | IAM credentials for S3.                                                |
+| `AWS_SECRET_ACCESS_KEY` | For logo uploads | IAM credentials for S3.                                                |
+| `AWS_S3_BUCKET_NAME`    | For logo uploads | Target bucket - must grant public read via a bucket policy, not object ACLs (disabled by default on buckets created since April 2023). |
+| `FRONTEND_URL`          | When `NODE_ENV=production` | Exact frontend origin(s) allowed by CORS, comma-separated for more than one. The app refuses to start in production without it. |
+| `NODE_ENV`              | Recommended in prod | `development` \| `production`. Governs cookie `Secure`/`SameSite` and CORS origin resolution (see below). |
+| `PORT`                  | Optional         | Defaults to `3333`. Cloud platforms (e.g. Render) set this dynamically. |
 
 Set `NODE_ENV=production` when deploying behind HTTPS. This makes the `token` cookie `Secure` + `SameSite=None` instead of the dev-mode `SameSite=Lax` - required because the frontend (e.g. Vercel) and this API (e.g. Render) live on different domains, making every request cross-site; `SameSite=Lax` is dropped from cross-site requests by the browser, and `SameSite=None` is rejected outright unless `Secure` is also set. It also switches CORS from the hardcoded `http://localhost:3000` dev origin to `FRONTEND_URL` - which becomes **required**, the app refuses to start in production without it, rather than falling back to something permissive.
 
