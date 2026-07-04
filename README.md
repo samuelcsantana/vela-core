@@ -92,7 +92,7 @@ AWS_S3_BUCKET_NAME="your-bucket-name"
 FRONTEND_URL="https://app.your-domain.com"
 ```
 
-Set `NODE_ENV=production` when deploying behind HTTPS. This makes the `token` cookie `secure` (browsers will then only send it over HTTPS) and switches CORS from the hardcoded `http://localhost:3000` dev origin to `FRONTEND_URL` - which becomes **required**, the app refuses to start in production without it, rather than falling back to something permissive.
+Set `NODE_ENV=production` when deploying behind HTTPS. This makes the `token` cookie `Secure` + `SameSite=None` instead of the dev-mode `SameSite=Lax` - required because the frontend (e.g. Vercel) and this API (e.g. Render) live on different domains, making every request cross-site; `SameSite=Lax` is dropped from cross-site requests by the browser, and `SameSite=None` is rejected outright unless `Secure` is also set. It also switches CORS from the hardcoded `http://localhost:3000` dev origin to `FRONTEND_URL` - which becomes **required**, the app refuses to start in production without it, rather than falling back to something permissive.
 
 ### Commands
 

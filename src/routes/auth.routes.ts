@@ -22,6 +22,30 @@ const registerBodySchema = z.object({
   role: roleSchema.optional(),
 });
 
+// Frontend (Vercel) and backend (Render) live on different domains, so this
+// is a cross-site request as far as the browser is concerned. SameSite=Lax
+// (the default) is dropped from cross-site requests entirely, which is
+// exactly why login returned 200 but every following request came back 401
+// - the cookie was set but never sent back. SameSite=None is required to
+// allow it cross-site, but browsers reject SameSite=None unless Secure is
+// also set. Locally there's no HTTPS and both sides share localhost, so dev
+// keeps Lax/non-Secure the way it always worked. logout must clear the
+// cookie with these same attributes - clearing with mismatched
+// Secure/SameSite doesn't reliably remove a cookie that was set with them.
+// Read at call time, not module load time, so it reflects NODE_ENV as of
+// each request rather than freezing whatever it was when this module first
+// loaded.
+function getAuthCookieOptions() {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? ('none' as const) : ('lax' as const),
+    path: '/',
+  };
+}
+
 export const authRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/auth/login',
@@ -60,12 +84,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         tenantId: user.tenantId,
       });
 
-      reply.cookie('token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      });
+      reply.cookie('token', token, getAuthCookieOptions());
 
       return reply.send({
         id: user.id,
@@ -90,7 +109,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      reply.clearCookie('token', { path: '/' });
+      reply.clearCookie('token', getAuthCookieOptions());
 
       return reply.status(200).send({ message: 'Logged out successfully' });
     },
