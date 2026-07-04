@@ -79,3 +79,61 @@ describe('Auth routes - failure flows', () => {
     expect(clearedCookie?.value).toBe('');
   });
 });
+
+describe('Auth cookie attributes - cross-origin support', () => {
+  const app = buildApp();
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  beforeAll(async () => {
+    await app.ready();
+    await seedBaseData();
+  });
+
+  afterAll(async () => {
+    process.env.NODE_ENV = originalNodeEnv;
+    await app.close();
+    await prisma.$disconnect();
+  });
+
+  it('sets a Lax, non-Secure cookie outside production (Vercel/Render both use HTTPS, but local dev does not)', async () => {
+    process.env.NODE_ENV = 'test';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: ADMIN_CREDENTIALS,
+    });
+
+    const cookie = response.cookies.find((c) => c.name === 'token');
+    expect(cookie?.secure).toBeFalsy();
+    expect(cookie?.sameSite).toBe('Lax');
+  });
+
+  it('sets a None, Secure cookie in production so it survives the Vercel <-> Render cross-site request', async () => {
+    process.env.NODE_ENV = 'production';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: ADMIN_CREDENTIALS,
+    });
+
+    const cookie = response.cookies.find((c) => c.name === 'token');
+    expect(cookie?.secure).toBe(true);
+    expect(cookie?.sameSite).toBe('None');
+  });
+
+  it('clears the cookie with the same Secure/SameSite attributes it was set with in production', async () => {
+    process.env.NODE_ENV = 'production';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+    });
+
+    const cookie = response.cookies.find((c) => c.name === 'token');
+    expect(cookie?.value).toBe('');
+    expect(cookie?.secure).toBe(true);
+    expect(cookie?.sameSite).toBe('None');
+  });
+});
