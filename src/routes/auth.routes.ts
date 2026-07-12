@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, roleSchema, withDescription } from '../lib/schemas.js';
+import {
+  errorResponseSchema,
+  validationErrorResponseSchema,
+  userPublicSchema,
+  roleSchema,
+  withDescription,
+} from '../lib/schemas.js';
 import { registerMember, verifyCredentials } from '../services/auth.service.js';
 
 const loginBodySchema = z.object({
@@ -57,7 +63,10 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
           'Public. Sets a signed JWT (id, role, tenantId) as an httpOnly cookie and returns the user.',
         body: loginBodySchema,
         response: {
-          200: withDescription(userPublicSchema, 'Login successful. Sets the token cookie and returns the user'),
+          200: withDescription(
+            userPublicSchema,
+            'Login successful. Sets the token cookie and returns the user',
+          ),
           400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
           401: withDescription(errorResponseSchema, 'Email not found or password does not match'),
         },
@@ -125,7 +134,10 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
           201: withDescription(userPublicSchema, 'User created successfully'),
           400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
           409: withDescription(errorResponseSchema, 'A user with this email already exists'),
-          500: withDescription(errorResponseSchema, 'Unexpected server error, e.g. tenantId does not reference an existing tenant'),
+          500: withDescription(
+            errorResponseSchema,
+            'Unexpected server error, e.g. tenantId does not reference an existing tenant',
+          ),
         },
       },
     },

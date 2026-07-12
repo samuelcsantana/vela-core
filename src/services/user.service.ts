@@ -22,7 +22,10 @@ export interface CreateUserInput {
   role?: Role;
 }
 
-export async function createUser(requester: JwtPayload, { email, password, tenantId: requestedTenantId, role }: CreateUserInput) {
+export async function createUser(
+  requester: JwtPayload,
+  { email, password, tenantId: requestedTenantId, role }: CreateUserInput,
+) {
   let tenantId: string;
 
   if (requester.role === 'VELA_ADMIN') {

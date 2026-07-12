@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { verifyAdmin } from '../lib/auth.js';
-import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, withDescription } from '../lib/schemas.js';
+import {
+  errorResponseSchema,
+  validationErrorResponseSchema,
+  userPublicSchema,
+  withDescription,
+} from '../lib/schemas.js';
 import { createUser, listUsers } from '../services/user.service.js';
 
 const createUserBodySchema = z.object({
@@ -49,7 +54,10 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
           401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
           403: withDescription(errorResponseSchema, 'Authenticated user is not an admin'),
           409: withDescription(errorResponseSchema, 'A user with this email already exists'),
-          500: withDescription(errorResponseSchema, 'Unexpected server error, e.g. tenantId does not reference an existing tenant'),
+          500: withDescription(
+            errorResponseSchema,
+            'Unexpected server error, e.g. tenantId does not reference an existing tenant',
+          ),
         },
       },
     },

@@ -16,14 +16,11 @@ import {
 // documentation (see bypassBodyValidation in lib/multipart.ts) - the actual
 // file is parsed separately by parseTenantMultipart and never appears in
 // `fields`.
-const logoDocsField = z
-  .string()
-  .optional()
-  .meta({
-    type: 'string',
-    format: 'binary',
-    description: 'Optional logo image file, uploaded to S3. Sets logoUrl on the tenant.',
-  });
+const logoDocsField = z.string().optional().meta({
+  type: 'string',
+  format: 'binary',
+  description: 'Optional logo image file, uploaded to S3. Sets logoUrl on the tenant.',
+});
 
 const createTenantFieldsSchema = z.object({
   name: z.string(),
