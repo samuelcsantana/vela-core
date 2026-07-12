@@ -1,8 +1,8 @@
 import { validatorCompiler as zodValidatorCompiler } from 'fastify-type-provider-zod';
 import type { FastifyRequest, FastifySchemaCompiler } from 'fastify';
-import type { LogoFile } from '../services/tenant.service.js';
+import type { ImageFile } from '../services/tenant.service.js';
 
-class InvalidLogoError extends Error {
+class InvalidImageError extends Error {
   statusCode = 400;
 }
 
@@ -23,18 +23,29 @@ export const bypassBodyValidation: FastifySchemaCompiler<any> = (routeSchema) =>
 // relying on the zod type provider's automatic request.body handling.
 export async function parseTenantMultipart(
   request: FastifyRequest,
-): Promise<{ fields: Record<string, string>; logo?: LogoFile }> {
+): Promise<{ fields: Record<string, string>; logo?: ImageFile; backgroundImage?: ImageFile }> {
   const fields: Record<string, string> = {};
-  let logo: LogoFile | undefined;
+  let logo: ImageFile | undefined;
+  let backgroundImage: ImageFile | undefined;
 
   for await (const part of request.parts()) {
     if (part.type === 'file') {
       if (part.fieldname === 'logo') {
         if (!part.mimetype.startsWith('image/')) {
-          throw new InvalidLogoError('logo must be an image file');
+          throw new InvalidImageError('logo must be an image file');
         }
 
         logo = {
+          buffer: await part.toBuffer(),
+          filename: part.filename,
+          mimetype: part.mimetype,
+        };
+      } else if (part.fieldname === 'backgroundImage') {
+        if (!part.mimetype.startsWith('image/')) {
+          throw new InvalidImageError('backgroundImage must be an image file');
+        }
+
+        backgroundImage = {
           buffer: await part.toBuffer(),
           filename: part.filename,
           mimetype: part.mimetype,
@@ -49,5 +60,5 @@ export async function parseTenantMultipart(
     }
   }
 
-  return { fields, logo };
+  return { fields, logo, backgroundImage };
 }

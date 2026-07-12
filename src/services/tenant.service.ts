@@ -7,10 +7,10 @@ import { ConflictError, ForbiddenError, NotFoundError, TenantHasUsersError } fro
 // run (see tenant.routes.spec.ts + auth.e2e.spec.ts), so CI never trips it.
 export const MAX_TENANTS_LIMIT = 20;
 
-// Domain-level view of an uploaded logo. The HTTP layer (lib/multipart.ts)
+// Domain-level view of an uploaded image. The HTTP layer (lib/multipart.ts)
 // produces this shape from a multipart request; the service only cares about
 // the bytes and metadata, not where they came from.
-export interface LogoFile {
+export interface ImageFile {
   buffer: Buffer;
   filename: string;
   mimetype: string;
@@ -20,17 +20,31 @@ export interface CreateTenantInput {
   name: string;
   slug: string;
   primaryColor?: string;
-  logo?: LogoFile;
+  logo?: ImageFile;
+  backgroundColor?: string;
+  backgroundImage?: ImageFile;
+  logoWidth?: number;
 }
 
 export interface UpdateTenantInput {
   name?: string;
   slug?: string;
   primaryColor?: string;
-  logo?: LogoFile;
+  logo?: ImageFile;
+  backgroundColor?: string;
+  backgroundImage?: ImageFile;
+  logoWidth?: number;
 }
 
-export async function createTenant({ name, slug, primaryColor, logo }: CreateTenantInput) {
+export async function createTenant({
+  name,
+  slug,
+  primaryColor,
+  logo,
+  backgroundColor,
+  backgroundImage,
+  logoWidth,
+}: CreateTenantInput) {
   const tenantCount = await prisma.tenant.count();
 
   if (tenantCount >= MAX_TENANTS_LIMIT) {
@@ -43,9 +57,12 @@ export async function createTenant({ name, slug, primaryColor, logo }: CreateTen
   // unique at the database level, so Prisma's P2002 error surfaces through
   // the central error handler as a 409 without a race-prone extra query.
   const logoUrl = logo ? await uploadLogo(logo.buffer, logo.filename, logo.mimetype) : undefined;
+  const backgroundImageUrl = backgroundImage
+    ? await uploadLogo(backgroundImage.buffer, backgroundImage.filename, backgroundImage.mimetype)
+    : undefined;
 
   return prisma.tenant.create({
-    data: { name, slug, primaryColor, logoUrl },
+    data: { name, slug, primaryColor, logoUrl, backgroundColor, backgroundImageUrl, logoWidth },
   });
 }
 
@@ -72,7 +89,10 @@ export async function getTenantBySlug(slug: string) {
   return tenant;
 }
 
-export async function updateTenant(id: string, { name, slug, primaryColor, logo }: UpdateTenantInput) {
+export async function updateTenant(
+  id: string,
+  { name, slug, primaryColor, logo, backgroundColor, backgroundImage, logoWidth }: UpdateTenantInput,
+) {
   const existingTenant = await prisma.tenant.findUnique({ where: { id } });
 
   if (!existingTenant) {
@@ -88,10 +108,13 @@ export async function updateTenant(id: string, { name, slug, primaryColor, logo 
   }
 
   const logoUrl = logo ? await uploadLogo(logo.buffer, logo.filename, logo.mimetype) : undefined;
+  const backgroundImageUrl = backgroundImage
+    ? await uploadLogo(backgroundImage.buffer, backgroundImage.filename, backgroundImage.mimetype)
+    : undefined;
 
   return prisma.tenant.update({
     where: { id },
-    data: { name, slug, primaryColor, logoUrl },
+    data: { name, slug, primaryColor, logoUrl, backgroundColor, backgroundImageUrl, logoWidth },
   });
 }
 

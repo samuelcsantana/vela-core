@@ -7,7 +7,7 @@ import {
   userPublicSchema,
   withDescription,
 } from '../lib/schemas.js';
-import { createUser, listUsers } from '../services/user.service.js';
+import { createUser, deleteUser, listUsers, updateUser } from '../services/user.service.js';
 
 const createUserBodySchema = z.object({
   email: z.string().email(),
@@ -90,6 +90,75 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       const users = await listUsers(request.user);
 
       return reply.send(users);
+    },
+  );
+
+  const updateUserBodySchema = z.object({
+    email: z.string().email().optional(),
+    password: z.string().min(6).optional(),
+    role: z.enum(['ADMIN', 'MEMBER']).optional(),
+    tenantId: z.string().uuid().optional(),
+  });
+
+  const userIdParamsSchema = z.object({
+    id: z.string().uuid(),
+  });
+
+  app.patch(
+    '/users/:id',
+    {
+      preHandler: [app.authenticate, verifyAdmin],
+      schema: {
+        tags: ['Users'],
+        summary: 'Update a user',
+        description:
+          'Admin only. Partially updates a user. VELA_ADMIN can edit any user; tenant ADMIN ' +
+          'can only edit users in their own tenant. Only VELA_ADMIN can move a user to another tenant.',
+        security: [{ cookieAuth: [] }],
+        params: userIdParamsSchema,
+        body: updateUserBodySchema,
+        response: {
+          200: withDescription(userPublicSchema, 'User updated successfully'),
+          400: withDescription(validationErrorResponseSchema, 'Invalid request body'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
+          403: withDescription(errorResponseSchema, 'Not authorized to edit this user'),
+          404: withDescription(errorResponseSchema, 'No user matches the given id'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error'),
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await updateUser(request.user, request.params.id, request.body);
+
+      return reply.send(user);
+    },
+  );
+
+  app.delete(
+    '/users/:id',
+    {
+      preHandler: [app.authenticate, verifyAdmin],
+      schema: {
+        tags: ['Users'],
+        summary: 'Delete a user',
+        description:
+          'Admin only. Deletes a user. VELA_ADMIN can delete any user; tenant ADMIN can only ' +
+          'delete users in their own tenant. Users cannot delete themselves.',
+        security: [{ cookieAuth: [] }],
+        params: userIdParamsSchema,
+        response: {
+          200: withDescription(z.object({ message: z.string() }), 'User deleted successfully'),
+          401: withDescription(errorResponseSchema, 'Missing or invalid token cookie'),
+          403: withDescription(errorResponseSchema, 'Not authorized to delete this user'),
+          404: withDescription(errorResponseSchema, 'No user matches the given id'),
+          500: withDescription(errorResponseSchema, 'Unexpected server error'),
+        },
+      },
+    },
+    async (request, reply) => {
+      await deleteUser(request.user, request.params.id);
+
+      return reply.status(200).send({ message: 'User deleted successfully' });
     },
   );
 };
