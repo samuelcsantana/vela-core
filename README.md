@@ -121,10 +121,16 @@ npm test
 # run tests with a coverage report
 npm run test:coverage
 
+# lint (eslint + prettier) and format
+npm run lint
+npm run format
+
 # type-check and build for production
 npm run build
 npm start
 ```
+
+A `docker-compose.yml` is included to spin up a local PostgreSQL (`docker compose up -d`), and the multi-stage `Dockerfile` produces a minimal production image (`node:22-alpine`, non-root user, prod-only dependencies).
 
 The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) with three accounts for evaluation purposes:
 
@@ -144,17 +150,22 @@ GET /docs
 
 The raw OpenAPI spec is available at `GET /docs/json`. The spec declares a `cookieAuth` (apiKey, in `cookie`) security scheme, matching the httpOnly `token` cookie expected by protected routes. Since Swagger UI's "Try it out" can't set httpOnly cookies for you, log in via `POST /api/auth/login` from a real HTTP client (e.g. `curl -c`) to exercise protected routes interactively.
 
+## Architecture: Routes → Services → Prisma
+
+Route handlers (`src/routes/`) only do HTTP: they parse and validate the request (Zod schemas that double as the OpenAPI spec), call a service, and map the result to a reply. Business rules — the tenant creation limit, slug conflicts, RBAC tenant scoping, credential checks, dashboard aggregation — live in `src/services/`, which never touch a `reply` or a status code. Services signal failures by throwing typed domain errors (`src/services/errors.ts`), translated to HTTP responses in one place by the central error handler — including machine-readable payloads like `TENANT_HAS_USERS` + `userCount`, which the frontend uses to drive its cascade-delete confirmation flow.
+
 ## Continuous Integration
 
-Every push and pull request to `main` or `develop` triggers `.github/workflows/ci.yml`, which:
+Every push and pull request to `main` or `develop` triggers three workflows:
 
-1. Spins up an ephemeral `postgres:15` service container.
-2. Installs dependencies with `npm ci`.
-3. Runs `npm audit --audit-level=high` as a security gate.
-4. Applies migrations (`prisma migrate deploy`) and seeds the database against the ephemeral Postgres instance.
-5. Runs the full test suite with coverage (`npm run test:coverage`).
-6. Uploads the `lcov.info` report to [Codecov](https://codecov.io/gh/samuelcsantana/vela-core), which generates the coverage badge above.
+- **`ci.yml`** — lint (ESLint + Prettier), typecheck (`tsc --noEmit`) and production build.
+- **`security.yml`** — `npm audit --audit-level=high` plus a full secretlint sweep (also on a weekly cron, to catch new advisories against unchanged code). Locally, a husky pre-commit hook runs secretlint on every commit via lint-staged.
+- **`tests.yml`** — spins up an ephemeral `postgres:15` service container, applies migrations and seeds, runs the full test suite with coverage, and uploads `lcov.info` to [Codecov](https://codecov.io/gh/samuelcsantana/vela-core), which generates the coverage badge above.
 
 `vitest.config.ts` enforces a 100% coverage threshold (lines, functions, branches, statements) — the CI run fails if any metric drops below that.
 
 The CI/CD and Coverage badges above are live (generated from the latest run on `main`). The Vulnerabilities badge is static text, manually updated whenever `npm audit` output changes materially.
+
+## License
+
+Released under the [MIT License](./LICENSE).

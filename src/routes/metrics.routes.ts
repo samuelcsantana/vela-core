@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { prisma } from '../lib/prisma.js';
 import { errorResponseSchema, roleSchema, withDescription } from '../lib/schemas.js';
+import { getDashboardMetrics } from '../services/metrics.service.js';
 
 const usersByTenantItemSchema = z.object({
   tenantId: z.string().uuid(),
@@ -70,50 +70,9 @@ export const metricsRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { role, tenantId } = request.user;
+      const metrics = await getDashboardMetrics(request.user);
 
-      if (role === 'VELA_ADMIN') {
-        const [totalTenants, totalUsers, tenants, recentSignups] = await Promise.all([
-          prisma.tenant.count(),
-          prisma.user.count(),
-          prisma.tenant.findMany({
-            select: { id: true, name: true, slug: true, _count: { select: { users: true } } },
-          }),
-          prisma.user.findMany({
-            orderBy: { createdAt: 'desc' },
-            take: 5,
-            select: { id: true, email: true, role: true, tenantId: true, createdAt: true },
-          }),
-        ]);
-
-        return reply.send({
-          scope: 'GLOBAL' as const,
-          totalTenants,
-          totalUsers,
-          usersByTenant: tenants.map((tenant) => ({
-            tenantId: tenant.id,
-            tenantName: tenant.name,
-            tenantSlug: tenant.slug,
-            userCount: tenant._count.users,
-          })),
-          recentSignups,
-        });
-      }
-
-      const [totalUsers, usersByRole] = await Promise.all([
-        prisma.user.count({ where: { tenantId } }),
-        prisma.user.groupBy({
-          by: ['role'],
-          where: { tenantId },
-          _count: { _all: true },
-        }),
-      ]);
-
-      return reply.send({
-        scope: 'TENANT' as const,
-        totalUsers,
-        usersByRole: usersByRole.map((group) => ({ role: group.role, count: group._count._all })),
-      });
+      return reply.send(metrics);
     },
   );
 };

@@ -1,0 +1,55 @@
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # New advisories can land for dependencies already pinned in the
+    # lockfile, with no code change of ours to trigger push/PR — catch
+    # those on a weekly cadence too.
+    - cron: "0 6 * * 1"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+  secrets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # A backstop for the local pre-commit hook (.husky/pre-commit), which
+      # only runs on machines that have run `npm install` with hooks
+      # enabled — this job catches anything committed via --no-verify, a
+      # missing local setup, or a hook that was never installed.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scan for leaked secrets
+        run: npx secretlint "**/*"

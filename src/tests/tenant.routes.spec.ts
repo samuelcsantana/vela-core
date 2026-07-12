@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
-import { MAX_TENANTS_LIMIT } from '../routes/tenant.routes.js';
-import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData, extractTokenCookie, buildTenantMultipart } from './helpers.js';
+import { MAX_TENANTS_LIMIT } from '../services/tenant.service.js';
+import {
+  ADMIN_CREDENTIALS,
+  GUEST_CREDENTIALS,
+  seedBaseData,
+  extractTokenCookie,
+  buildTenantMultipart,
+} from './helpers.js';
 
 const { FAKE_LOGO_URL } = vi.hoisted(() => ({
   FAKE_LOGO_URL: 'https://vela-saas-portfolio-logos.s3.sa-east-1.amazonaws.com/logos/fake-logo.png',
@@ -70,7 +76,7 @@ describe('Tenant routes - exception flows', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const tenants = response.json() as Array<Record<string, unknown>>;
+    const tenants = response.json<Array<Record<string, unknown>>>();
     expect(Array.isArray(tenants)).toBe(true);
     expect(tenants.some((tenant) => tenant.slug === 'vela')).toBe(true);
 
@@ -536,7 +542,10 @@ describe('Tenant routes - exception flows', () => {
       });
     }
 
-    const { payload, headers } = buildTenantMultipart({ name: 'One Too Many', slug: `over-limit-${Date.now()}` });
+    const { payload, headers } = buildTenantMultipart({
+      name: 'One Too Many',
+      slug: `over-limit-${Date.now()}`,
+    });
 
     const response = await app.inject({
       method: 'POST',
