@@ -1,8 +1,8 @@
 {
   "name": "vela-core",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Multi-tenant SaaS backend with tenant-scoped data isolation, JWT auth and RBAC, built on Fastify + Prisma",
+  "main": "dist/server.js",
   "scripts": {
     "postinstall": "prisma generate",
     "prepare": "husky || true",
@@ -21,9 +21,16 @@
     "type": "git",
     "url": "git+https://github.com/samuelcsantana/vela-core.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "multi-tenant",
+    "saas",
+    "fastify",
+    "prisma",
+    "rbac",
+    "typescript"
+  ],
+  "author": "Samuel Santana",
+  "license": "MIT",
   "type": "module",
   "bugs": {
     "url": "https://github.com/samuelcsantana/vela-core/issues"
