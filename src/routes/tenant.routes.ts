@@ -121,7 +121,15 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       const { fields, logo, backgroundImage } = await parseTenantMultipart(request);
       const { name, slug, primaryColor, backgroundColor, logoWidth } = createTenantFieldsSchema.parse(fields);
 
-      const tenant = await createTenant({ name, slug, primaryColor, logo, backgroundColor, backgroundImage, logoWidth });
+      const tenant = await createTenant({
+        name,
+        slug,
+        primaryColor,
+        logo,
+        backgroundColor,
+        backgroundImage,
+        logoWidth,
+      });
 
       return reply.status(201).send(tenant);
     },
@@ -201,7 +209,15 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       const { fields, logo, backgroundImage } = await parseTenantMultipart(request);
       const { name, slug, primaryColor, backgroundColor, logoWidth } = updateTenantFieldsSchema.parse(fields);
 
-      const tenant = await updateTenant(id, { name, slug, primaryColor, logo, backgroundColor, backgroundImage, logoWidth });
+      const tenant = await updateTenant(id, {
+        name,
+        slug,
+        primaryColor,
+        logo,
+        backgroundColor,
+        backgroundImage,
+        logoWidth,
+      });
 
       return reply.send(tenant);
     },
