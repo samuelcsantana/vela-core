@@ -4,8 +4,9 @@ import { ConflictError, ForbiddenError, NotFoundError, TenantHasUsersError } fro
 
 // Portfolio demo safeguard against exhausting the free-tier database plan.
 // Set well above the tenant count our own test suite creates in a single
-// run (see tenant.routes.spec.ts + auth.e2e.spec.ts), so CI never trips it.
-export const MAX_TENANTS_LIMIT = 20;
+// run (see tenant.routes.spec.ts + user.routes.spec.ts + auth.e2e.spec.ts),
+// so CI never trips it.
+export const MAX_TENANTS_LIMIT = 30;
 
 // Domain-level view of an uploaded image. The HTTP layer (lib/multipart.ts)
 // produces this shape from a multipart request; the service only cares about
