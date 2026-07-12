@@ -144,7 +144,12 @@ describe('Metrics routes', () => {
     expect(body.recentSignups.length).toBeLessThanOrEqual(5);
 
     const ourEntry = (
-      body.usersByTenant as Array<{ tenantId: string; tenantName: string; tenantSlug: string; userCount: number }>
+      body.usersByTenant as Array<{
+        tenantId: string;
+        tenantName: string;
+        tenantSlug: string;
+        userCount: number;
+      }>
     ).find((entry) => entry.tenantId === isolatedTenant.id);
 
     expect(ourEntry).toEqual({

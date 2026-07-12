@@ -5,13 +5,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
-      exclude: [
-        'src/generated/**',
-        'src/tests/**',
-        'prisma/**',
-        'dist/**',
-        '**/*.config.*',
-      ],
+      exclude: ['src/generated/**', 'src/tests/**', 'prisma/**', 'dist/**', '**/*.config.*'],
       thresholds: {
         lines: 100,
         functions: 100,

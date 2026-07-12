@@ -31,7 +31,9 @@ describe('CORS origin resolution', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.FRONTEND_URL;
 
-    expect(() => buildApp()).toThrow('FRONTEND_URL environment variable must be set when NODE_ENV=production');
+    expect(() => buildApp()).toThrow(
+      'FRONTEND_URL environment variable must be set when NODE_ENV=production',
+    );
   });
 
   it('restricts CORS to a single FRONTEND_URL origin in production', async () => {

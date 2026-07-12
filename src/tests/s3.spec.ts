@@ -37,7 +37,9 @@ describe('uploadLogo', () => {
     const url = await uploadLogo(Buffer.from('fake-png-bytes'), 'logo.png', 'image/png');
 
     expect(sendMock).toHaveBeenCalledTimes(1);
-    expect(url).toMatch(new RegExp(`^https://${TEST_BUCKET}\\.s3\\.${TEST_REGION}\\.amazonaws\\.com/logos/.+-logo\\.png$`));
+    expect(url).toMatch(
+      new RegExp(`^https://${TEST_BUCKET}\\.s3\\.${TEST_REGION}\\.amazonaws\\.com/logos/.+-logo\\.png$`),
+    );
   });
 
   it('sends the correct bucket, content type and body to S3', async () => {
@@ -57,7 +59,7 @@ describe('uploadLogo', () => {
   it('does not set an ACL (public read must come from a bucket policy)', async () => {
     await uploadLogo(Buffer.from('fake'), 'logo.png', 'image/png');
 
-    const call = vi.mocked(PutObjectCommand).mock.calls[0][0] as Record<string, unknown>;
+    const call = vi.mocked(PutObjectCommand).mock.calls[0][0];
     expect(call.ACL).toBeUndefined();
   });
 });

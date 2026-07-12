@@ -180,7 +180,9 @@ describe('User routes - exception flows', () => {
   it('lets VELA_ADMIN create a user with an explicit role for any tenant', async () => {
     const otherSlug = `vela-admin-target-${Date.now()}`;
     createdTenantSlugs.push(otherSlug);
-    const otherTenant = await prisma.tenant.create({ data: { name: 'Vela Admin Target Co', slug: otherSlug } });
+    const otherTenant = await prisma.tenant.create({
+      data: { name: 'Vela Admin Target Co', slug: otherSlug },
+    });
 
     const email = `vela-admin-created-${Date.now()}@example.com`;
     createdUserEmails.push(email);
@@ -215,7 +217,7 @@ describe('User routes - exception flows', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const users = response.json() as Array<{ tenantId: string; tenant: { name: string; slug: string } }>;
+    const users = response.json<Array<{ tenantId: string; tenant: { slug: string } }>>();
     expect(Array.isArray(users)).toBe(true);
     expect(users.length).toBeGreaterThan(0);
     expect(users.every((user) => user.tenantId === tenantId)).toBe(true);
@@ -242,7 +244,7 @@ describe('User routes - exception flows', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const users = response.json() as Array<{ email: string; tenantId: string }>;
+    const users = response.json<Array<{ tenantId: string; email: string }>>();
     const tenantIdsSeen = new Set(users.map((user) => user.tenantId));
 
     expect(tenantIdsSeen.has(tenantId)).toBe(true);
