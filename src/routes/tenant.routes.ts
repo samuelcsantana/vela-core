@@ -12,28 +12,39 @@ import {
   updateTenant,
 } from '../services/tenant.service.js';
 
-// The `logo` field only exists here to drive Swagger's multipart/form-data
-// documentation (see bypassBodyValidation in lib/multipart.ts) - the actual
-// file is parsed separately by parseTenantMultipart and never appears in
-// `fields`.
+// The `logo` and `backgroundImage` fields only exist here to drive Swagger's
+// multipart/form-data documentation (see bypassBodyValidation in lib/multipart.ts) -
+// the actual files are parsed separately by parseTenantMultipart and never appear
+// in `fields`.
 const logoDocsField = z.string().optional().meta({
   type: 'string',
   format: 'binary',
   description: 'Optional logo image file, uploaded to S3. Sets logoUrl on the tenant.',
+});
+const backgroundImageDocsField = z.string().optional().meta({
+  type: 'string',
+  format: 'binary',
+  description: 'Optional background image file, uploaded to S3. Sets backgroundImageUrl on the tenant.',
 });
 
 const createTenantFieldsSchema = z.object({
   name: z.string(),
   slug: z.string(),
   primaryColor: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  logoWidth: z.coerce.number().int().min(16).max(512).optional(),
   logo: logoDocsField,
+  backgroundImage: backgroundImageDocsField,
 });
 
 const updateTenantFieldsSchema = z.object({
   name: z.string().optional(),
   slug: z.string().optional(),
   primaryColor: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  logoWidth: z.coerce.number().int().min(16).max(512).optional(),
   logo: logoDocsField,
+  backgroundImage: backgroundImageDocsField,
 });
 
 const tenantSlugParamsSchema = z.object({
@@ -46,6 +57,9 @@ const tenantResponseSchema = z.object({
   name: z.string(),
   primaryColor: z.string().nullable(),
   logoUrl: z.string().nullable(),
+  backgroundColor: z.string().nullable(),
+  backgroundImageUrl: z.string().nullable(),
+  logoWidth: z.number().int().nullable(),
   createdAt: z.date(),
 });
 
@@ -104,10 +118,10 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { fields, logo } = await parseTenantMultipart(request);
-      const { name, slug, primaryColor } = createTenantFieldsSchema.parse(fields);
+      const { fields, logo, backgroundImage } = await parseTenantMultipart(request);
+      const { name, slug, primaryColor, backgroundColor, logoWidth } = createTenantFieldsSchema.parse(fields);
 
-      const tenant = await createTenant({ name, slug, primaryColor, logo });
+      const tenant = await createTenant({ name, slug, primaryColor, logo, backgroundColor, backgroundImage, logoWidth });
 
       return reply.status(201).send(tenant);
     },
@@ -184,10 +198,10 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { fields, logo } = await parseTenantMultipart(request);
-      const { name, slug, primaryColor } = updateTenantFieldsSchema.parse(fields);
+      const { fields, logo, backgroundImage } = await parseTenantMultipart(request);
+      const { name, slug, primaryColor, backgroundColor, logoWidth } = updateTenantFieldsSchema.parse(fields);
 
-      const tenant = await updateTenant(id, { name, slug, primaryColor, logo });
+      const tenant = await updateTenant(id, { name, slug, primaryColor, logo, backgroundColor, backgroundImage, logoWidth });
 
       return reply.send(tenant);
     },

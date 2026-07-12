@@ -19,13 +19,16 @@ enum Role {
 }
 
 model Tenant {
-  id           String   @id @default(uuid())
-  slug         String   @unique
-  name         String
-  primaryColor String?
-  logoUrl      String?
-  createdAt    DateTime @default(now())
-  users        User[]
+  id                 String   @id @default(uuid())
+  slug               String   @unique
+  name               String
+  primaryColor       String?
+  logoUrl            String?
+  backgroundColor    String?
+  backgroundImageUrl String?
+  logoWidth          Int?
+  createdAt          DateTime @default(now())
+  users              User[]
 }
 
 model User {
