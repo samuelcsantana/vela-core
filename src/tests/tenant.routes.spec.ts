@@ -261,6 +261,91 @@ describe('Tenant routes - exception flows', () => {
     expect(patchResponse.json().logoUrl).toBe(FAKE_LOGO_URL);
   });
 
+  it('creates a tenant with a background image file, uploading it to S3', async () => {
+    const slug = `with-bg-${Date.now()}`;
+    createdTenantSlugs.push(slug);
+
+    const { payload, headers } = buildTenantMultipart(
+      { name: 'Background Co', slug },
+      {
+        buffer: Buffer.from('fake-png-bytes'),
+        filename: 'background.png',
+        contentType: 'image/png',
+        fieldname: 'backgroundImage',
+      },
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      headers,
+      payload,
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().backgroundImageUrl).toBe(FAKE_LOGO_URL);
+    expect(response.json().logoUrl).toBeNull();
+  });
+
+  it('rejects a non-image file in the backgroundImage field', async () => {
+    const { payload, headers } = buildTenantMultipart(
+      { name: 'Bad Background Co', slug: `bad-bg-${Date.now()}` },
+      {
+        buffer: Buffer.from('not-an-image'),
+        filename: 'notes.txt',
+        contentType: 'text/plain',
+        fieldname: 'backgroundImage',
+      },
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      headers,
+      payload,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('backgroundImage must be an image file');
+  });
+
+  it('updates a tenant background image, uploading the new file to S3', async () => {
+    const slug = `patch-bg-${Date.now()}`;
+    createdTenantSlugs.push(slug);
+
+    const create = buildTenantMultipart({ name: 'Patch Background Co', slug });
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      cookies: { token: adminToken },
+      headers: create.headers,
+      payload: create.payload,
+    });
+    const tenantId = createResponse.json().id;
+
+    const patch = buildTenantMultipart(
+      {},
+      {
+        buffer: Buffer.from('fake-png-bytes'),
+        filename: 'new-background.png',
+        contentType: 'image/png',
+        fieldname: 'backgroundImage',
+      },
+    );
+    const patchResponse = await app.inject({
+      method: 'PATCH',
+      url: `/api/tenants/${tenantId}`,
+      cookies: { token: adminToken },
+      headers: patch.headers,
+      payload: patch.payload,
+    });
+
+    expect(patchResponse.statusCode).toBe(200);
+    expect(patchResponse.json().backgroundImageUrl).toBe(FAKE_LOGO_URL);
+  });
+
   it('allows re-submitting the same slug on the same tenant', async () => {
     const slug = `patch-same-slug-${Date.now()}`;
     createdTenantSlugs.push(slug);
