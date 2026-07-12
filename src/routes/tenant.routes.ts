@@ -1,14 +1,21 @@
 import { z } from 'zod';
-import { validatorCompiler as zodValidatorCompiler, type FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import type { FastifyRequest, FastifySchemaCompiler } from 'fastify';
-import { prisma } from '../lib/prisma.js';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { verifyAdmin } from '../lib/auth.js';
-import { uploadLogo } from '../lib/s3.js';
+import { bypassBodyValidation, parseTenantMultipart } from '../lib/multipart.js';
 import { errorResponseSchema, validationErrorResponseSchema, withDescription } from '../lib/schemas.js';
+import {
+  createTenant,
+  deleteTenant,
+  getTenantBySlug,
+  listPublicTenants,
+  listTenants,
+  updateTenant,
+} from '../services/tenant.service.js';
 
 // The `logo` field only exists here to drive Swagger's multipart/form-data
-// documentation (see bypassBodyValidation below) - the actual file is parsed
-// separately by parseTenantMultipart and never appears in `fields`.
+// documentation (see bypassBodyValidation in lib/multipart.ts) - the actual
+// file is parsed separately by parseTenantMultipart and never appears in
+// `fields`.
 const logoDocsField = z
   .string()
   .optional()
@@ -31,18 +38,6 @@ const updateTenantFieldsSchema = z.object({
   primaryColor: z.string().optional(),
   logo: logoDocsField,
 });
-
-// Fastify would otherwise run the global zod validatorCompiler against
-// request.body, but multipart requests never populate request.body (fields
-// are parsed manually via parseTenantMultipart) - so body validation is a
-// harmless no-op here, while params/querystring/etc. still validate normally.
-const bypassBodyValidation: FastifySchemaCompiler<any> = (routeSchema) => {
-  if (routeSchema.httpPart === 'body') {
-    return () => ({ value: undefined });
-  }
-
-  return zodValidatorCompiler(routeSchema);
-};
 
 const tenantSlugParamsSchema = z.object({
   slug: z.string(),
@@ -84,55 +79,6 @@ const tenantHasUsersErrorSchema = z.object({
   userCount: z.number().int().nonnegative(),
 });
 
-// Portfolio demo safeguard against exhausting the free-tier database plan.
-// Set well above the tenant count our own test suite creates in a single
-// run (see tenant.routes.spec.ts + auth.e2e.spec.ts), so CI never trips it.
-export const MAX_TENANTS_LIMIT = 20;
-
-interface ParsedLogo {
-  buffer: Buffer;
-  filename: string;
-  mimetype: string;
-}
-
-class InvalidLogoError extends Error {
-  statusCode = 400;
-}
-
-// Fastify's schema-based body validation only understands application/json,
-// so multipart routes parse and validate the form manually instead of
-// relying on the zod type provider's automatic request.body handling.
-async function parseTenantMultipart(
-  request: FastifyRequest,
-): Promise<{ fields: Record<string, string>; logo?: ParsedLogo }> {
-  const fields: Record<string, string> = {};
-  let logo: ParsedLogo | undefined;
-
-  for await (const part of request.parts()) {
-    if (part.type === 'file') {
-      if (part.fieldname === 'logo') {
-        if (!part.mimetype.startsWith('image/')) {
-          throw new InvalidLogoError('logo must be an image file');
-        }
-
-        logo = {
-          buffer: await part.toBuffer(),
-          filename: part.filename,
-          mimetype: part.mimetype,
-        };
-      } else {
-        // Drain and discard any file sent under a field we don't care about -
-        // busboy won't advance to the next part until this stream is consumed.
-        await part.toBuffer();
-      }
-    } else {
-      fields[part.fieldname] = String(part.value);
-    }
-  }
-
-  return { fields, logo };
-}
-
 export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/tenants',
@@ -164,19 +110,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       const { fields, logo } = await parseTenantMultipart(request);
       const { name, slug, primaryColor } = createTenantFieldsSchema.parse(fields);
 
-      const tenantCount = await prisma.tenant.count();
-
-      if (tenantCount >= MAX_TENANTS_LIMIT) {
-        return reply.status(403).send({
-          error: `Free tier limit reached. Maximum number of tenants allowed in this demo is ${MAX_TENANTS_LIMIT}.`,
-        });
-      }
-
-      const logoUrl = logo ? await uploadLogo(logo.buffer, logo.filename, logo.mimetype) : undefined;
-
-      const tenant = await prisma.tenant.create({
-        data: { name, slug, primaryColor, logoUrl },
-      });
+      const tenant = await createTenant({ name, slug, primaryColor, logo });
 
       return reply.status(201).send(tenant);
     },
@@ -198,7 +132,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const tenants = await prisma.tenant.findMany();
+      const tenants = await listTenants();
 
       return reply.send(tenants);
     },
@@ -219,9 +153,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const tenants = await prisma.tenant.findMany({
-        select: { id: true, name: true, slug: true },
-      });
+      const tenants = await listPublicTenants();
 
       return reply.send(tenants);
     },
@@ -258,26 +190,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       const { fields, logo } = await parseTenantMultipart(request);
       const { name, slug, primaryColor } = updateTenantFieldsSchema.parse(fields);
 
-      const existingTenant = await prisma.tenant.findUnique({ where: { id } });
-
-      if (!existingTenant) {
-        return reply.status(404).send({ error: 'Tenant not found' });
-      }
-
-      if (slug) {
-        const tenantWithSlug = await prisma.tenant.findUnique({ where: { slug } });
-
-        if (tenantWithSlug && tenantWithSlug.id !== id) {
-          return reply.status(409).send({ error: 'Another tenant already uses this slug' });
-        }
-      }
-
-      const logoUrl = logo ? await uploadLogo(logo.buffer, logo.filename, logo.mimetype) : undefined;
-
-      const tenant = await prisma.tenant.update({
-        where: { id },
-        data: { name, slug, primaryColor, logoUrl },
-      });
+      const tenant = await updateTenant(id, { name, slug, primaryColor, logo });
 
       return reply.send(tenant);
     },
@@ -313,25 +226,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     async (request, reply) => {
       const { id } = request.params;
       const { force } = request.query;
-      const forceDelete = force === 'true';
 
-      const existingTenant = await prisma.tenant.findUnique({ where: { id } });
-
-      if (!existingTenant) {
-        return reply.status(404).send({ error: 'Tenant not found' });
-      }
-
-      if (!forceDelete) {
-        const userCount = await prisma.user.count({ where: { tenantId: id } });
-
-        if (userCount > 0) {
-          return reply.status(409).send({ error: 'TENANT_HAS_USERS', userCount });
-        }
-      }
-
-      // With force=true (or no remaining users), User.tenantId's ON DELETE
-      // CASCADE handles removing the tenant's users at the database level.
-      await prisma.tenant.delete({ where: { id } });
+      await deleteTenant(id, force === 'true');
 
       return reply.status(200).send({ message: 'Tenant deleted successfully' });
     },
@@ -352,13 +248,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { slug } = request.params;
-
-      const tenant = await prisma.tenant.findUnique({ where: { slug } });
-
-      if (!tenant) {
-        return reply.status(404).send({ error: 'Tenant not found' });
-      }
+      const tenant = await getTenantBySlug(request.params.slug);
 
       return reply.send(tenant);
     },

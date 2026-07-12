@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { prisma } from '../lib/prisma.js';
-import { MAX_TENANTS_LIMIT } from '../routes/tenant.routes.js';
+import { MAX_TENANTS_LIMIT } from '../services/tenant.service.js';
 import { ADMIN_CREDENTIALS, GUEST_CREDENTIALS, seedBaseData, extractTokenCookie, buildTenantMultipart } from './helpers.js';
 
 const { FAKE_LOGO_URL } = vi.hoisted(() => ({

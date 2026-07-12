@@ -1,16 +1,16 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import bcrypt from 'bcryptjs';
-import { prisma } from '../lib/prisma.js';
 import { verifyAdmin } from '../lib/auth.js';
 import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, withDescription } from '../lib/schemas.js';
+import { createUser, listUsers } from '../services/user.service.js';
 
 const createUserBodySchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   // Required for VELA_ADMIN (which tenant is this user for?), but ignored
-  // for a tenant ADMIN - see the RBAC comment in the handler below. Optional
-  // here so an ADMIN caller isn't forced to send a value that won't be used.
+  // for a tenant ADMIN - see the RBAC comment in services/user.service.ts.
+  // Optional here so an ADMIN caller isn't forced to send a value that won't
+  // be used.
   tenantId: z.string().uuid().optional(),
   // VELA_ADMIN is deliberately not an assignable option: creating a root
   // account still requires direct database/seed access, not this endpoint.
@@ -54,35 +54,7 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { email, password, tenantId: requestedTenantId, role } = request.body;
-      const requester = request.user;
-
-      let tenantId: string;
-
-      if (requester.role === 'VELA_ADMIN') {
-        if (!requestedTenantId) {
-          return reply.status(400).send({ error: 'tenantId is required when creating a user as VELA_ADMIN' });
-        }
-        tenantId = requestedTenantId;
-      } else {
-        // Tenant ADMIN: always scoped to their own tenant, regardless of
-        // what was sent in the payload - prevents provisioning users into
-        // another company.
-        tenantId = requester.tenantId;
-      }
-
-      const passwordHash = await bcrypt.hash(password, 10);
-
-      const user = await prisma.user.create({
-        data: { email, passwordHash, tenantId, role: role ?? 'MEMBER' },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          tenantId: true,
-          createdAt: true,
-        },
-      });
+      const user = await createUser(request.user, request.body);
 
       return reply.status(201).send(user);
     },
@@ -107,21 +79,7 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const { role, tenantId } = request.user;
-
-      const users = await prisma.user.findMany({
-        where: role === 'VELA_ADMIN' ? {} : { tenantId },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          tenantId: true,
-          createdAt: true,
-          tenant: {
-            select: { name: true, slug: true },
-          },
-        },
-      });
+      const users = await listUsers(request.user);
 
       return reply.send(users);
     },

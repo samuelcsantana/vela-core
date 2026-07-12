@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import bcrypt from 'bcryptjs';
-import { prisma } from '../lib/prisma.js';
 import { errorResponseSchema, validationErrorResponseSchema, userPublicSchema, roleSchema, withDescription } from '../lib/schemas.js';
+import { registerMember, verifyCredentials } from '../services/auth.service.js';
 
 const loginBodySchema = z.object({
   email: z.string().email(),
@@ -18,7 +17,8 @@ const registerBodySchema = z.object({
   password: z.string().min(6),
   tenantId: z.string().uuid(),
   // Accepted for API contract compatibility with the tenant picker flow, but
-  // intentionally ignored by the handler below — see the comment there.
+  // intentionally ignored by the service — see registerMember in
+  // services/auth.service.ts.
   role: roleSchema.optional(),
 });
 
@@ -66,15 +66,9 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     async (request, reply) => {
       const { email, password } = request.body;
 
-      const user = await prisma.user.findUnique({ where: { email } });
+      const user = await verifyCredentials(email, password);
 
       if (!user) {
-        return reply.unauthorized('Invalid credentials');
-      }
-
-      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-
-      if (!isValidPassword) {
         return reply.unauthorized('Invalid credentials');
       }
 
@@ -138,21 +132,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     async (request, reply) => {
       const { email, password, tenantId } = request.body;
 
-      const existingUser = await prisma.user.findUnique({ where: { email } });
-
-      if (existingUser) {
-        return reply.status(409).send({ error: 'A user with this email already exists' });
-      }
-
-      const passwordHash = await bcrypt.hash(password, 10);
-
-      // role is never taken from the request body: this is a public,
-      // unauthenticated endpoint, so trusting a client-supplied role would let
-      // anyone self-assign ADMIN on any tenant (tenant ids are public via
-      // GET /tenants/public). Self-registration is always MEMBER.
-      const user = await prisma.user.create({
-        data: { email, passwordHash, tenantId, role: 'MEMBER' },
-      });
+      const user = await registerMember({ email, password, tenantId });
 
       return reply.status(201).send({
         id: user.id,
