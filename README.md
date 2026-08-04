@@ -96,7 +96,7 @@ cp .env.example .env
 | `AWS_S3_BUCKET_NAME`    | For logo uploads | Target bucket - must grant public read via a bucket policy, not object ACLs (disabled by default on buckets created since April 2023). |
 | `FRONTEND_URL`          | When `NODE_ENV=production` | Exact frontend origin(s) allowed by CORS, comma-separated for more than one. The app refuses to start in production without it. |
 | `NODE_ENV`              | Recommended in prod | `development` \| `production`. Governs cookie `Secure`/`SameSite` and CORS origin resolution (see below). |
-| `PORT`                  | Optional         | Defaults to `3333`. Cloud platforms (e.g. Render) set this dynamically. |
+| `PORT`                  | Optional         | Defaults to `3010`. Cloud platforms (e.g. Render) set this dynamically. |
 
 Set `NODE_ENV=production` when deploying behind HTTPS. This makes the `token` cookie `Secure` + `SameSite=None` instead of the dev-mode `SameSite=Lax` - required because the frontend (e.g. Vercel) and this API (e.g. Render) live on different domains, making every request cross-site; `SameSite=Lax` is dropped from cross-site requests by the browser, and `SameSite=None` is rejected outright unless `Secure` is also set. It also switches CORS from the hardcoded `http://localhost:3000` dev origin to `FRONTEND_URL` - which becomes **required**, the app refuses to start in production without it, rather than falling back to something permissive.
 
@@ -112,7 +112,7 @@ npx prisma migrate dev
 # seed an admin/guest user and a demo tenant
 npx prisma db seed
 
-# start the dev server (hot reload) on http://localhost:3333
+# start the dev server (hot reload) on http://localhost:3010
 npm run dev
 
 # run the test suite
@@ -130,7 +130,7 @@ npm run build
 npm start
 ```
 
-A `docker-compose.yml` is included to spin up a local PostgreSQL (`docker compose up -d`), and the multi-stage `Dockerfile` produces a minimal production image (`node:22-alpine`, non-root user, prod-only dependencies).
+See [Docker](#docker) below to run the API together with its own PostgreSQL container in one command.
 
 The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) with three accounts for evaluation purposes:
 
@@ -139,6 +139,25 @@ The seed script (`prisma/seed.ts`) creates a "Vela Admin" tenant (`slug: vela`) 
 | `admin@vela.com`        | `admin123`        | `VELA_ADMIN` |
 | `tenantadmin@vela.com`  | `tenantadmin123`  | `ADMIN`      |
 | `guest@vela.com`        | `guest123`        | `MEMBER`     |
+
+## Docker
+
+This is the backend half of a front+back pair with **vela-ui** (the React frontend, `http://localhost:3011`).
+
+```bash
+docker compose up -d --build
+```
+
+Brings up Postgres and the API together:
+
+| Service    | Port                                |
+| ---------- | ------------------------------------ |
+| `api`      | `3010` (from `PORT` in `.env`)       |
+| `postgres` | `5434` (host-side only; the container still listens on `5432` internally) |
+
+The compose file intentionally does **not** define a `web` service — `vela-ui` lives in its own repository with its own `docker-compose.yml` and points its `VITE_API_URL` at wherever this API is reachable (defaults to `http://localhost:3010`). Run both compose stacks side by side for full-stack local development.
+
+On container start, `npx prisma migrate deploy` runs automatically before the server boots, so a fresh `docker compose up` migrates an empty database rather than booting against an unmigrated schema.
 
 ## API Documentation
 
