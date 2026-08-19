@@ -82,5 +82,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0",
     "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.1"
   }
 }
